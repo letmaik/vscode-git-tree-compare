@@ -62,10 +62,16 @@ export class GitContextProvider implements vscode.TreeDataProvider<FileSystemEnt
 
 		// add files
 		for (const entry of this._diffFolderMapping.get(folder)) {
-			// TODO add command which opens the file
+			const uri = vscode.Uri.file(path.join(this.repo.root, entry.path));
+			console.log(uri)
 			entries.push(new FileSystemEntry(
 				entry.path, path.basename(entry.path), 
-				vscode.TreeItemCollapsibleState.None));
+				vscode.TreeItemCollapsibleState.None,
+				{
+					command: 'vscode.open',
+					arguments: [uri],
+					title: 'Open file'
+				}));
 		}
 
 		return entries
