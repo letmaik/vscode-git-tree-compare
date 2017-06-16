@@ -35,6 +35,7 @@
 		"@types/node": "*"
 	},
 	"dependencies": {
-		"iconv-lite": "0.4.15"
+		"iconv-lite": "0.4.15",
+		"vscode-nls": "^2.0.1"
 	}
 }
