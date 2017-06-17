@@ -6,9 +6,9 @@
 'use strict';
 
 import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
-import { findGit, Git, Repository } from './git';
-import { Askpass } from './askpass';
-import { toDisposable } from './util';
+import { findGit, Git, Repository } from './git/git';
+import { Askpass } from './git/askpass';
+import { toDisposable } from './git/util';
 
 
 export async function createGit(): Promise<Git> {

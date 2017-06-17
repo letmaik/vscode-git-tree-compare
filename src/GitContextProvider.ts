@@ -3,7 +3,7 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri, Command, Disposable, EventEmitter, Event, workspace } from 'vscode'
 import { Repository } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
-import { diffIndex, IDiffStatus } from './git/git_helper'
+import { diffIndex, IDiffStatus } from './git_helper'
 import { debounce } from './git/decorators'
 
 export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Disposable {
