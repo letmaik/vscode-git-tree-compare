@@ -24,19 +24,35 @@ export async function createGit(): Promise<Git> {
 }
 
 export interface IDiffStatus {
+	/**
+	 * A Addition of a file
+	 * D Deletion of a file
+	 * M Modification of file contents
+	 * T Change in type of the file (i.e. regular file, symlink, submodule, ...​) 
+	 * C File has merge conflicts
+	 * U Untracked file
+	 */
 	status: string
 	path: string
 }
 
 export async function diffIndex(repo: Repository, ref: string) {
-	const result = await repo.run(['diff-index', '--name-status', ref]);
-	const diffStatuses: IDiffStatus[] = result.stdout.trim().split('\n')
+	const diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref]);
+	const untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
+	
+	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)
-		.map(line => {
-			return {
-				status: line[0],
-				path: line.substr(1).trim()
-			};
-		});
-	return diffStatuses;
+		.map(line => ({
+			status: line[0] == 'U' ? 'C' : line[0],
+			path: line.substr(1).trim()
+		}));
+	
+	const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
+		.filter(line => !!line)
+		.map(line => ({
+			status: 'U',
+			path: line
+		}));
+
+	return diffIndexStatuses.concat(untrackedStatuses);
 }
