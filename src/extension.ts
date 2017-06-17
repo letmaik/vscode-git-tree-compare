@@ -14,6 +14,9 @@ export function activate(context: ExtensionContext) {
 	context.subscriptions.push(new Disposable(() => Disposable.from(...disposables).dispose()));
 
 	const rootPath = workspace.rootPath;
+	if (!rootPath) {
+		return;
+	}
 
 	const outputChannel = window.createOutputChannel('Git Context');
 	disposables.push(outputChannel);
@@ -26,12 +29,16 @@ export function activate(context: ExtensionContext) {
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
 		const HEAD = await repository.getHEAD();
-		const headBranch = await repository.getBranch(HEAD.name);
-		if (headBranch.upstream) {
-			const remote = headBranch.upstream.split('/')[0]
-			const baseRef = remote + "/HEAD";
-			const provider = new GitContextProvider(baseRef, repository);
-			window.registerTreeDataProvider('gitContext', provider);
+		if (!HEAD.name) {
+			return;
 		}
+		const headBranch = await repository.getBranch(HEAD.name);
+		if (!headBranch.upstream) {
+			return;
+		}
+		const remote = headBranch.upstream.split('/')[0]
+		const baseRef = remote + "/HEAD";
+		const provider = new GitContextProvider(baseRef, repository);
+		window.registerTreeDataProvider('gitContext', provider);
 	})
 }

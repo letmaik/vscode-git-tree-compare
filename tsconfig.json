@@ -7,10 +7,11 @@
 			"es6"
 		],
 		"sourceMap": true,
-		"rootDir": "."
+		"rootDir": ".",
+		"strictNullChecks": true,
+		"experimentalDecorators": true
 	},
-	"exclude": [
-		"node_modules",
-		".vscode-test"
+	"include": [
+		"src/**/*"
 	]
 }
