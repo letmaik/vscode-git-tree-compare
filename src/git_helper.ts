@@ -54,5 +54,7 @@ export async function diffIndex(repo: Repository, ref: string) {
 			path: line
 		}));
 
-	return diffIndexStatuses.concat(untrackedStatuses);
+	const statuses = diffIndexStatuses.concat(untrackedStatuses);
+	statuses.sort((s1, s2) => s1.path.localeCompare(s2.path))
+	return statuses;
 }
