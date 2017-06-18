@@ -33,6 +33,9 @@ export function activate(context: ExtensionContext) {
 			return;
 		}
 		const headBranch = await repository.getBranch(HEAD.name);
+		// TODO don't use default branch of upstream remote, may not exist
+		//   -> instead determine most likely parent branch + option to change
+		// see https://stackoverflow.com/a/17843908/60982 
 		if (!headBranch.upstream) {
 			return;
 		}
