@@ -3,7 +3,7 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri, Command, Disposable, EventEmitter, Event, workspace } from 'vscode'
 import { Repository } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
-import { diffIndex, IDiffStatus } from './git/git_helper'
+import { diffIndex, IDiffStatus } from './git_helper'
 import { debounce } from './git/decorators'
 
 export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Disposable {
@@ -92,6 +92,7 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 			entries.push(new FileSystemEntry(
 				file.path, path.basename(file.path),
 				TreeItemCollapsibleState.None,
+				toIconName(file),
 				{
 					command: 'vscode.open',
 					arguments: [uri],
@@ -107,24 +108,31 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 	}
 }
 
+function toIconName(diffStatus: IDiffStatus) {
+	switch(diffStatus.status) {
+		case 'U': return 'status-untracked';
+		case 'A': return 'status-added';
+		case 'D': return 'status-deleted';
+		case 'M': return 'status-modified';
+		case 'C': return 'status-conflict';		
+	}
+}
+
 class FileSystemEntry extends TreeItem {
 
 	constructor(
 		public readonly relPath: string,
 		public readonly label: string,
 		public readonly collapsibleState: TreeItemCollapsibleState,
+		private readonly iconName?: string,
 		public readonly command?: Command
 	) {
 		super(label, collapsibleState);
+		if (iconName) {
+			this.iconPath = path.join(__dirname, '..', '..', 'resources', 'icons', iconName + '.svg');
+		}
 	}
-
-	// TODO remove icon for folders and add file icon according to status
-	iconPath = {
-		light: path.join(__filename, '..', '..', '..', 'resources', 'light', 'dependency.svg'),
-		dark: path.join(__filename, '..', '..', '..', 'resources', 'dark', 'dependency.svg')
-	};
 
 	// TODO
 	contextValue = 'foldertodo';
-
 }

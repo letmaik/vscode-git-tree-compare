@@ -3,7 +3,7 @@
 import { ExtensionContext, workspace, window, Disposable } from 'vscode';
 
 import { GitContextProvider } from './GitContextProvider'
-import { createGit, diffIndex } from './git/git_helper'
+import { createGit } from './git_helper'
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
