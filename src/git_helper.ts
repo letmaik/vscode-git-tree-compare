@@ -23,6 +23,27 @@ export async function createGit(): Promise<Git> {
 	return new Git({ gitPath: info.path, version: info.version, env });
 }
 
+/**
+ * @see https://stackoverflow.com/a/17843908
+ */
+export async function getParentBranch(repo: Repository): Promise<string | undefined> {
+	const head = await repo.getHEAD();
+	if (!head.name) {
+		return;
+	}
+	const result = await repo.run(['show-branch']);
+	const matches = result.stdout.split('\n')
+		.filter(line => line.startsWith('*'))
+		.map(line => line
+			.replace(/^[*+ ]+\[(.+?)\].+/, '$1')
+			.replace(/(~|\^)\d*$/, ''))
+		.filter(ref => ref != head.name);
+	if (matches.length == 0) {
+		return;
+	}
+	return matches[0];
+}
+
 export interface IDiffStatus {
 	/**
 	 * A Addition of a file

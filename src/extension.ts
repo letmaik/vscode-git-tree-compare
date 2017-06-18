@@ -3,7 +3,7 @@
 import { ExtensionContext, workspace, window, Disposable } from 'vscode';
 
 import { GitContextProvider } from './GitContextProvider'
-import { createGit } from './git_helper'
+import { createGit, getParentBranch } from './git_helper'
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
@@ -28,19 +28,12 @@ export function activate(context: ExtensionContext) {
 
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
-		const HEAD = await repository.getHEAD();
-		if (!HEAD.name) {
+		// TODO re-check if active branch (HEAD) got changed
+		const baseRef = await getParentBranch(repository);
+		if (!baseRef) {
+			// either some error, or on a branch without parent (like master)
 			return;
 		}
-		const headBranch = await repository.getBranch(HEAD.name);
-		// TODO don't use default branch of upstream remote, may not exist
-		//   -> instead determine most likely parent branch + option to change
-		// see https://stackoverflow.com/a/17843908/60982 
-		if (!headBranch.upstream) {
-			return;
-		}
-		const remote = headBranch.upstream.split('/')[0]
-		const baseRef = remote + "/HEAD";
 		const provider = new GitContextProvider(baseRef, repository);
 		window.registerTreeDataProvider('gitContext', provider);
 	})
