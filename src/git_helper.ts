@@ -6,7 +6,7 @@
 'use strict';
 
 import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
-import { findGit, Git, Repository } from './git/git';
+import { findGit, Git, Repository, Ref } from './git/git';
 import { Askpass } from './git/askpass';
 import { toDisposable } from './git/util';
 
@@ -26,8 +26,7 @@ export async function createGit(): Promise<Git> {
 /**
  * @see https://stackoverflow.com/a/17843908
  */
-export async function getParentBranch(repo: Repository): Promise<string | undefined> {
-	const head = await repo.getHEAD();
+export async function getParentBranch(repo: Repository, head: Ref): Promise<string | undefined> {
 	if (!head.name) {
 		return;
 	}

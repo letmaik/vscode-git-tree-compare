@@ -3,10 +3,10 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
 	     workspace, commands } from 'vscode'
-import { Repository } from './git/git'
+import { Repository, Ref } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { diffIndex, IDiffStatus } from './git_helper'
+import { getParentBranch, diffIndex, IDiffStatus } from './git_helper'
 import { debounce } from './git/decorators'
 
 export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Disposable {
@@ -16,9 +16,12 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 
 	private readonly diffFolderMapping: Map<string, IDiffStatus[]> = new Map();
 
+	private baseRef: string;
+	private HEAD: Ref;
+
 	private disposables: Disposable[] = [];
 
-	constructor(private baseRef: string, private repository: Repository) {
+	constructor(private repository: Repository) {
 		const fsWatcher = workspace.createFileSystemWatcher('**');
 		this.disposables.push(fsWatcher);
 
@@ -48,6 +51,18 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 	private async initDiff() {
 		this.diffFolderMapping.clear();
 		this.diffFolderMapping.set('.', new Array());
+
+		const HEAD = await this.repository.getHEAD();
+		if (!HEAD.name) {
+			return;
+		}
+		if (!this.HEAD || this.HEAD.name != HEAD.name) {
+			this.HEAD = HEAD;
+			const baseRef = await getParentBranch(this.repository, HEAD);
+			// fall-back to HEAD if no parent found
+			this.baseRef = baseRef ? baseRef : HEAD.name;
+		}
+
 		const diff = await diffIndex(this.repository, this.baseRef);
 		for (const entry of diff) {
 			const folder = path.dirname(entry.path);

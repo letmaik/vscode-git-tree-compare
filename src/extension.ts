@@ -28,13 +28,7 @@ export function activate(context: ExtensionContext) {
 
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
-		// TODO re-check if active branch (HEAD) got changed
-		const baseRef = await getParentBranch(repository);
-		if (!baseRef) {
-			// either some error, or on a branch without parent (like master)
-			return;
-		}
-		const provider = new GitContextProvider(baseRef, repository);
+		const provider = new GitContextProvider(repository);
 		window.registerTreeDataProvider('gitContext', provider);
 
 		commands.registerCommand('gitContext.diffWithBase', node => {
