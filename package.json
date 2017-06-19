@@ -22,6 +22,20 @@
 					"name": "Git Context"
 				}
 			]
+		},
+		"commands": [
+			{
+				"command": "gitContext.diffWithBase",
+				"title": "Compare File with Base Branch"
+			}
+		],
+		"menus": {
+			"view/item/context": [
+				{
+					"command": "gitContext.diffWithBase",
+					"when": "view == gitContext && viewItem == file"
+				}
+			]
 		}
 	},
 	"scripts": {

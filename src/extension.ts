@@ -1,9 +1,9 @@
 'use strict';
 
-import { ExtensionContext, workspace, window, Disposable } from 'vscode';
+import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
 import { GitContextProvider } from './GitContextProvider'
-import { createGit } from './git_helper'
+import { createGit, getParentBranch } from './git_helper'
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
@@ -28,17 +28,14 @@ export function activate(context: ExtensionContext) {
 
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
-		const HEAD = await repository.getHEAD();
-		if (!HEAD.name) {
-			return;
-		}
-		const headBranch = await repository.getBranch(HEAD.name);
-		if (!headBranch.upstream) {
-			return;
-		}
-		const remote = headBranch.upstream.split('/')[0]
-		const baseRef = remote + "/HEAD";
-		const provider = new GitContextProvider(baseRef, repository);
+		const provider = new GitContextProvider(repository);
 		window.registerTreeDataProvider('gitContext', provider);
+
+		commands.registerCommand('gitContext.diffWithBase', node => {
+			if (!node) {
+				return;
+			}
+			provider.showDiffWithBase(node)
+		});
 	})
 }

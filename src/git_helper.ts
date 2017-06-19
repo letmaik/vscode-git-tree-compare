@@ -6,7 +6,7 @@
 'use strict';
 
 import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
-import { findGit, Git, Repository } from './git/git';
+import { findGit, Git, Repository, Ref } from './git/git';
 import { Askpass } from './git/askpass';
 import { toDisposable } from './git/util';
 
@@ -21,6 +21,26 @@ export async function createGit(): Promise<Git> {
 	const askpass = new Askpass();
 	const env = await askpass.getEnv();
 	return new Git({ gitPath: info.path, version: info.version, env });
+}
+
+/**
+ * @see https://stackoverflow.com/a/17843908
+ */
+export async function getParentBranch(repo: Repository, head: Ref): Promise<string | undefined> {
+	if (!head.name) {
+		return;
+	}
+	const result = await repo.run(['show-branch']);
+	const matches = result.stdout.split('\n')
+		.filter(line => line.search(/^[*+ ]*\*[*+ ]*/) != -1)
+		.map(line => line
+			.replace(/^[*+ ]+\[(.+?)\].+/, '$1')
+			.replace(/(~|\^)\d*$/, ''))
+		.filter(ref => ref != head.name);
+	if (matches.length == 0) {
+		return;
+	}
+	return matches[0];
 }
 
 export interface IDiffStatus {
