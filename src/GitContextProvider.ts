@@ -96,9 +96,7 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 				continue;
 			}
 			if (path.dirname(folder2) == folder) {
-				entries.push(new FileSystemEntry(
-					folder2, path.basename(folder2),
-					TreeItemCollapsibleState.Expanded));
+				entries.push(new FileSystemEntry(folder2));
 			}
 		}
 
@@ -106,33 +104,59 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		const files = this.diffFolderMapping.get(folder) as IDiffStatus[];
 		for (const file of files) {
 			const uri = Uri.file(path.join(this.repository.root, file.path));
+			const command = file.status == 'D' ? undefined : {
+				command: 'vscode.open',
+				arguments: [uri],
+				title: ''
+			};
 			entries.push(new FileSystemEntry(
-				file.path, path.basename(file.path),
-				TreeItemCollapsibleState.None,
-				toIconName(file),
-				{
-					command: 'vscode.open',
-					arguments: [uri],
-					title: 'Open file'
-				}));
+				file.path, file, command));
 		}
 
 		return entries
 	}
 
-	async showDiffWithBase(node: FileSystemEntry) {
-		// TODO handle file deletion and addition
-		const right = Uri.file(path.join(this.repository.root, node.relPath));
+	async showDiffWithBase(fileEntry: FileSystemEntry) {
+		const right = Uri.file(path.join(this.repository.root, fileEntry.relPath));
 		const left = toGitUri(right, this.baseRef);
+		const status = (fileEntry.fileStatus as IDiffStatus).status;
+
+		if (status == 'U' || status == 'A') {
+			return commands.executeCommand('vscode.open', right);
+		}
+		if (status == 'D') {
+			return commands.executeCommand('vscode.open', left);
+		}		
+		
 		const options: TextDocumentShowOptions = {
 			preview: true
 		};
 		await commands.executeCommand('vscode.diff',
-			left, right, node.label + " (Working Tree)", options);
+			left, right, fileEntry.label + " (Working Tree)", options);
 	} 
 
 	dispose(): void {
 		this.disposables.forEach(d => d.dispose());
+	}
+}
+
+class FileSystemEntry extends TreeItem {
+
+	constructor(
+		public readonly relPath: string,
+		public readonly fileStatus?: IDiffStatus,
+		public readonly command?: Command
+	) {
+		super(path.basename(relPath));
+		if (fileStatus) {
+			this.collapsibleState = TreeItemCollapsibleState.None;
+			this.contextValue = 'file';
+			const iconName = toIconName(fileStatus);
+			this.iconPath = path.join(__dirname, '..', '..', 'resources', 'icons', iconName + '.svg');
+		} else {
+			this.collapsibleState = TreeItemCollapsibleState.Expanded;
+			this.contextValue = 'folder';
+		}
 	}
 }
 
@@ -142,27 +166,6 @@ function toIconName(diffStatus: IDiffStatus) {
 		case 'A': return 'status-added';
 		case 'D': return 'status-deleted';
 		case 'M': return 'status-modified';
-		case 'C': return 'status-conflict';		
-	}
-}
-
-class FileSystemEntry extends TreeItem {
-
-	constructor(
-		public readonly relPath: string,
-		public readonly label: string,
-		public readonly collapsibleState: TreeItemCollapsibleState,
-		private readonly iconName?: string,
-		public readonly command?: Command
-	) {
-		super(label, collapsibleState);
-		if (collapsibleState == TreeItemCollapsibleState.None) {
-			this.contextValue = 'file';
-		} else {
-			this.contextValue = 'folder';
-		}
-		if (iconName) {
-			this.iconPath = path.join(__dirname, '..', '..', 'resources', 'icons', iconName + '.svg');
-		}
+		case 'C': return 'status-conflict';
 	}
 }
