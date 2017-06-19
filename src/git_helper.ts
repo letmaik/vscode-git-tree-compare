@@ -33,7 +33,7 @@ export async function getParentBranch(repo: Repository): Promise<string | undefi
 	}
 	const result = await repo.run(['show-branch']);
 	const matches = result.stdout.split('\n')
-		.filter(line => line.startsWith('*'))
+		.filter(line => line.search(/^[*+ ]*\*[*+ ]*/) != -1)
 		.map(line => line
 			.replace(/^[*+ ]+\[(.+?)\].+/, '$1')
 			.replace(/(~|\^)\d*$/, ''))
