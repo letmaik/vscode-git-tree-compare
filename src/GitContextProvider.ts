@@ -1,3 +1,5 @@
+'use strict';
+
 import * as path from 'path'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
