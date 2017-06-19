@@ -1,8 +1,11 @@
 import * as path from 'path'
 
-import { TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri, Command, Disposable, EventEmitter, Event, workspace } from 'vscode'
+import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
+	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
+	     workspace, commands } from 'vscode'
 import { Repository } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
+import { toGitUri } from './git/uri'
 import { diffIndex, IDiffStatus } from './git_helper'
 import { debounce } from './git/decorators'
 
@@ -88,7 +91,6 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		const files = this.diffFolderMapping.get(folder) as IDiffStatus[];
 		for (const file of files) {
 			const uri = Uri.file(path.join(this.repository.root, file.path));
-			console.log(uri)
 			entries.push(new FileSystemEntry(
 				file.path, path.basename(file.path),
 				TreeItemCollapsibleState.None,
@@ -102,6 +104,17 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 
 		return entries
 	}
+
+	async showDiffWithBase(node: FileSystemEntry) {
+		// TODO handle file deletion and addition
+		const right = Uri.file(path.join(this.repository.root, node.relPath));
+		const left = toGitUri(right, this.baseRef);
+		const options: TextDocumentShowOptions = {
+			preview: true
+		};
+		await commands.executeCommand('vscode.diff',
+			left, right, node.label + " (Working Tree)", options);
+	} 
 
 	dispose(): void {
 		this.disposables.forEach(d => d.dispose());
@@ -128,11 +141,13 @@ class FileSystemEntry extends TreeItem {
 		public readonly command?: Command
 	) {
 		super(label, collapsibleState);
+		if (collapsibleState == TreeItemCollapsibleState.None) {
+			this.contextValue = 'file';
+		} else {
+			this.contextValue = 'folder';
+		}
 		if (iconName) {
 			this.iconPath = path.join(__dirname, '..', '..', 'resources', 'icons', iconName + '.svg');
 		}
 	}
-
-	// TODO
-	contextValue = 'foldertodo';
 }

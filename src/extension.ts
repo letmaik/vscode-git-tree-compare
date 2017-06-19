@@ -1,6 +1,6 @@
 'use strict';
 
-import { ExtensionContext, workspace, window, Disposable } from 'vscode';
+import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
 import { GitContextProvider } from './GitContextProvider'
 import { createGit, getParentBranch } from './git_helper'
@@ -36,5 +36,12 @@ export function activate(context: ExtensionContext) {
 		}
 		const provider = new GitContextProvider(baseRef, repository);
 		window.registerTreeDataProvider('gitContext', provider);
+
+		commands.registerCommand('gitContext.diffWithBase', node => {
+			if (!node) {
+				return;
+			}
+			provider.showDiffWithBase(node)
+		});
 	})
 }
