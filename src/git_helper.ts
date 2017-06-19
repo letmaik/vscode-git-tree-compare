@@ -47,13 +47,24 @@ export interface IDiffStatus {
 	/**
 	 * A Addition of a file
 	 * D Deletion of a file
-	 * M Modification of file contents
-	 * T Change in type of the file (i.e. regular file, symlink, submodule, ...​) 
+	 * M Modification of file contents 
 	 * C File has merge conflicts
 	 * U Untracked file
 	 */
-	status: string
+	status: StatusCode
 	path: string
+}
+
+type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U'
+
+function sanitizeStatus(status: string): StatusCode {
+	if (status == 'U') {
+		return 'C';
+	}
+	if (status.length != 1 || 'ADM'.indexOf(status) == -1) {
+		throw new Error('unsupported git status: ' + status);
+	}
+	return status as StatusCode;
 }
 
 export async function diffIndex(repo: Repository, ref: string) {
@@ -63,14 +74,14 @@ export async function diffIndex(repo: Repository, ref: string) {
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)
 		.map(line => ({
-			status: line[0] == 'U' ? 'C' : line[0],
+			status: sanitizeStatus(line[0]),
 			path: line.substr(1).trim()
 		}));
 	
 	const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
 		.filter(line => !!line)
 		.map(line => ({
-			status: 'U',
+			status: 'U' as 'U',
 			path: line
 		}));
 
