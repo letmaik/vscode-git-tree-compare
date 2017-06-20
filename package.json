@@ -19,7 +19,7 @@
 			"explorer": [
 				{
 					"id": "gitContext",
-					"name": "Git Context"
+					"name": "Branch Compare"
 				}
 			]
 		},

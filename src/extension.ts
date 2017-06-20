@@ -3,7 +3,7 @@
 import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
 import { GitContextProvider } from './GitContextProvider'
-import { createGit, getParentBranch } from './git_helper'
+import { createGit, getDefaultBranch } from './git_helper'
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 

@@ -1,10 +1,19 @@
 'use strict';
 
+import * as path from 'path';
+import * as fs from 'fs';
+
 import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
 import { findGit, Git, Repository, Ref } from './git/git';
 import { Askpass } from './git/askpass';
-import { toDisposable } from './git/util';
+import { toDisposable, denodeify } from './git/util';
 
+const readFile = denodeify<string>(fs.readFile);
+
+export function denodeify2<R>(fn: Function): (...args) => Promise<R> {
+	return (...args) => new Promise<R>(c => fn(...args, r => c(r)));
+}
+const exists = denodeify2<boolean>(fs.exists);
 
 export async function createGit(): Promise<Git> {
 	const config = workspace.getConfiguration('git');
@@ -18,24 +27,32 @@ export async function createGit(): Promise<Git> {
 	return new Git({ gitPath: info.path, version: info.version, env });
 }
 
-/**
- * @see https://stackoverflow.com/a/17843908
- */
-export async function getParentBranch(repo: Repository, head: Ref): Promise<string | undefined> {
+export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
 	if (!head.name) {
 		return;
 	}
-	const result = await repo.run(['show-branch']);
-	const matches = result.stdout.split('\n')
-		.filter(line => line.search(/^[*+ ]*\*[*+ ]*/) != -1)
-		.map(line => line
-			.replace(/^[*+ ]+\[(.+?)\].+/, '$1')
-			.replace(/(~|\^)\d*$/, ''))
-		.filter(ref => ref != head.name);
-	if (matches.length == 0) {
+	const headBranch = await repo.getBranch(head.name);
+	if (!headBranch.upstream) {
 		return;
 	}
-	return matches[0];
+	const refs = await repo.getRefs();
+	const remote = headBranch.upstream.split('/')[0]
+	const remoteHead = remote + "/HEAD";
+	if (refs.find(ref => ref.name == remoteHead) === undefined) {
+		return;
+	}
+	// there is no git command equivalent to "git remote set-head" for reading the default branch
+	// however, the branch name is in the file .git/refs/remotes/$remote/HEAD
+	// the file format is: 
+	// ref: refs/remotes/origin/master
+	const symRefPath = path.join(repo.root, '.git', 'refs', 'remotes', remote, 'HEAD');
+	const symRefExists = exists(symRefPath);
+	if (!symRefExists) {
+		return;
+	}
+	const symRef = await readFile(symRefPath, 'utf8');
+	const remoteHeadBranch = symRef.trim().replace('ref: refs/remotes/', '');
+	return remoteHeadBranch;
 }
 
 export interface IDiffStatus {
@@ -47,7 +64,16 @@ export interface IDiffStatus {
 	 * U Untracked file
 	 */
 	status: StatusCode
-	path: string
+	relPath: string
+	absUri: Uri
+}
+
+class DiffStatus implements IDiffStatus {
+	readonly absUri: Uri;
+
+	constructor(repo: Repository, public status: StatusCode, public relPath: string) {
+		this.absUri = Uri.file(path.join(repo.root, relPath));
+	}
 }
 
 type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U'
@@ -68,19 +94,15 @@ export async function diffIndex(repo: Repository, ref: string) {
 	
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)
-		.map(line => ({
-			status: sanitizeStatus(line[0]),
-			path: line.substr(1).trim()
-		}));
+		.map(line =>
+			new DiffStatus(repo, sanitizeStatus(line[0]), line.substr(1).trim())
+		);
 	
 	const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
 		.filter(line => !!line)
-		.map(line => ({
-			status: 'U' as 'U',
-			path: line
-		}));
+		.map(line => new DiffStatus(repo, 'U' as 'U', line));
 
 	const statuses = diffIndexStatuses.concat(untrackedStatuses);
-	statuses.sort((s1, s2) => s1.path.localeCompare(s2.path))
+	statuses.sort((s1, s2) => s1.relPath.localeCompare(s2.relPath))
 	return statuses;
 }

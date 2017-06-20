@@ -8,13 +8,28 @@ import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 import { Repository, Ref } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { getParentBranch, diffIndex, IDiffStatus } from './git_helper'
+import { getDefaultBranch, diffIndex, IDiffStatus } from './git_helper'
 import { debounce } from './git/decorators'
 
-export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Disposable {
+class FileElement {
+	constructor(public file: IDiffStatus) {}
+}
 
-	private _onDidChangeTreeData: EventEmitter<FileSystemEntry | undefined> = new EventEmitter<FileSystemEntry | undefined>();
-	readonly onDidChangeTreeData: Event<FileSystemEntry | undefined> = this._onDidChangeTreeData.event;
+class FolderElement {
+	constructor(public relPath: string) {}
+}
+
+class BranchElement {
+	constructor(public branchName: string) {}
+}
+
+type Element = FileElement | FolderElement | BranchElement
+type FileSystemElement = FileElement | FolderElement
+
+export class GitContextProvider implements TreeDataProvider<Element>, Disposable {
+
+	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
+	readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
 	private readonly diffFolderMapping: Map<string, IDiffStatus[]> = new Map();
 
@@ -37,16 +52,20 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
 	}
 
-	getTreeItem(element: FileSystemEntry): TreeItem {
-		return element;
+	getTreeItem(element: Element): TreeItem {
+		return toTreeItem(element);
 	}
 
-	async getChildren(element?: FileSystemEntry): Promise<FileSystemEntry[]> {
-		if (element) {
+	async getChildren(element?: Element): Promise<Element[]> {
+		if (!element) {
+			await this.initDiff();
+			return [new BranchElement(this.baseRef)];
+		} else if (element instanceof BranchElement) {
+			return this.getFileSystemEntries('.');
+		} else if (element instanceof FolderElement) {
 			return this.getFileSystemEntries(element.relPath);
 		} else {
-			await this.initDiff()
-			return this.getFileSystemEntries('.');
+			throw new Error(element.constructor.name + ' does not have children!');
 		}
 	}
 
@@ -60,14 +79,14 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		}
 		if (!this.HEAD || this.HEAD.name != HEAD.name) {
 			this.HEAD = HEAD;
-			const baseRef = await getParentBranch(this.repository, HEAD);
-			// fall-back to HEAD if no parent found
+			const baseRef = await getDefaultBranch(this.repository, HEAD);
+			// fall-back to HEAD if no default found
 			this.baseRef = baseRef ? baseRef : HEAD.name;
 		}
 
 		const diff = await diffIndex(this.repository, this.baseRef);
 		for (const entry of diff) {
-			const folder = path.dirname(entry.path);
+			const folder = path.dirname(entry.relPath);
 
 			// add this and all parent folders to the folder map
 			let currentFolder = folder
@@ -89,8 +108,8 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		this._onDidChangeTreeData.fire()
 	}
 
-	private getFileSystemEntries(folder: string): FileSystemEntry[] {
-		const entries: FileSystemEntry[] = [];
+	private getFileSystemEntries(folder: string): FileSystemElement[] {
+		const entries: FileSystemElement[] = [];
 
 		// add direct subfolders
 		for (const folder2 of this.diffFolderMapping.keys()) {
@@ -98,30 +117,23 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 				continue;
 			}
 			if (path.dirname(folder2) == folder) {
-				entries.push(new FileSystemEntry(folder2));
+				entries.push(new FolderElement(folder2));
 			}
 		}
 
 		// add files
 		const files = this.diffFolderMapping.get(folder) as IDiffStatus[];
 		for (const file of files) {
-			const uri = Uri.file(path.join(this.repository.root, file.path));
-			const command = file.status == 'D' ? undefined : {
-				command: 'vscode.open',
-				arguments: [uri],
-				title: ''
-			};
-			entries.push(new FileSystemEntry(
-				file.path, file, command));
+			entries.push(new FileElement(file));
 		}
 
 		return entries
 	}
 
-	async showDiffWithBase(fileEntry: FileSystemEntry) {
-		const right = Uri.file(path.join(this.repository.root, fileEntry.relPath));
+	async showDiffWithBase(fileEntry: FileElement) {
+		const right = fileEntry.file.absUri;
 		const left = toGitUri(right, this.baseRef);
-		const status = (fileEntry.fileStatus as IDiffStatus).status;
+		const status = fileEntry.file.status;
 
 		if (status == 'U' || status == 'A') {
 			return commands.executeCommand('vscode.open', right);
@@ -133,8 +145,9 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 		const options: TextDocumentShowOptions = {
 			preview: true
 		};
+		const filename = path.basename(fileEntry.file.relPath);
 		await commands.executeCommand('vscode.diff',
-			left, right, fileEntry.label + " (Working Tree)", options);
+			left, right, filename + " (Working Tree)", options);
 	} 
 
 	dispose(): void {
@@ -142,28 +155,41 @@ export class GitContextProvider implements TreeDataProvider<FileSystemEntry>, Di
 	}
 }
 
-class FileSystemEntry extends TreeItem {
-
-	constructor(
-		public readonly relPath: string,
-		public readonly fileStatus?: IDiffStatus,
-		public readonly command?: Command
-	) {
-		super(path.basename(relPath));
-		if (fileStatus) {
-			this.collapsibleState = TreeItemCollapsibleState.None;
-			this.contextValue = 'file';
-			const iconName = toIconName(fileStatus);
-			this.iconPath = path.join(__dirname, '..', '..', 'resources', 'icons', iconName + '.svg');
-		} else {
-			this.collapsibleState = TreeItemCollapsibleState.Expanded;
-			this.contextValue = 'folder';
+function toTreeItem(element: Element): TreeItem {
+	const iconRoot = path.join(__dirname, '..', '..', 'resources', 'icons');
+	if (element instanceof FileElement) {
+		const label = path.basename(element.file.relPath);
+		const item = new TreeItem(label);
+		item.contextValue = 'file';
+		item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
+		if (element.file.status != 'D') {
+			item.command = {
+				command: 'vscode.open',
+				arguments: [element.file.absUri],
+				title: ''
+			};
 		}
+		return item;
+	} else if (element instanceof FolderElement) {
+		const label = path.basename(element.relPath);
+		const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
+		item.contextValue = 'folder';
+		return item;
+	} else if (element instanceof BranchElement) {
+		const label = element.branchName;
+		const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
+		item.contextValue = 'branch';
+		item.iconPath = {
+			light: path.join(iconRoot, 'light', 'git-compare.svg'),
+			dark: path.join(iconRoot, 'dark', 'git-compare.svg')
+		};
+		return item;
 	}
+	throw new Error('unsupported element type');
 }
 
-function toIconName(diffStatus: IDiffStatus) {
-	switch(diffStatus.status) {
+function toIconName(element: FileElement) {
+	switch(element.file.status) {
 		case 'U': return 'status-untracked';
 		case 'A': return 'status-added';
 		case 'D': return 'status-deleted';
