@@ -36,6 +36,9 @@ class RefItem implements QuickPickItem {
 	}
 }
 
+// TODO show folder hierarchy from workspace root, not repo root
+//      and display any folder above workspace in '..' node (collapsed by default)
+
 export class GitCompareBranchProvider implements TreeDataProvider<Element>, Disposable {
 
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
