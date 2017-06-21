@@ -1,5 +1,5 @@
 {
-	"name": "vscode-git-context",
+	"name": "vscode-git-branch-compare",
 	"displayName": "tbd",
 	"description": "tbd",
 	"version": "0.0.1",
@@ -11,29 +11,39 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onView:gitContext"
+		"onView:gitBranchCompare"
 	],
 	"main": "./out/src/extension",
 	"contributes": {
 		"views": {
 			"explorer": [
 				{
-					"id": "gitContext",
+					"id": "gitBranchCompare",
 					"name": "Branch Compare"
 				}
 			]
 		},
 		"commands": [
 			{
-				"command": "gitContext.diffWithBase",
-				"title": "Compare File with Base Branch"
+				"command": "gitBranchCompare.diffWithBase",
+				"title": "Compare File with Base",
+				"category": "Branch Compare"
+			},
+			{
+				"command": "gitBranchCompare.changeBase",
+				"title": "Change Base...",
+				"category": "Branch Compare"
 			}
 		],
 		"menus": {
 			"view/item/context": [
 				{
-					"command": "gitContext.diffWithBase",
-					"when": "view == gitContext && viewItem == file"
+					"command": "gitBranchCompare.diffWithBase",
+					"when": "view == gitBranchCompare && viewItem == file"
+				},
+				{
+					"command": "gitBranchCompare.changeBase",
+					"when": "view == gitBranchCompare && viewItem == branch"
 				}
 			]
 		}

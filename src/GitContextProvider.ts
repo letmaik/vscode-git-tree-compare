@@ -4,8 +4,9 @@ import * as path from 'path'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
-	     workspace, commands } from 'vscode'
-import { Repository, Ref } from './git/git'
+		 QuickPickItem,
+	     workspace, commands, window } from 'vscode'
+import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
 import { getDefaultBranch, diffIndex, IDiffStatus } from './git_helper'
@@ -25,6 +26,15 @@ class BranchElement {
 
 type Element = FileElement | FolderElement | BranchElement
 type FileSystemElement = FileElement | FolderElement
+
+class RefItem implements QuickPickItem {
+	label: string
+	description: string
+	constructor(public ref: Ref) {
+		this.label = ref.name as string;
+		this.description = (ref.commit || '').substr(0, 8);
+	}
+}
 
 export class GitContextProvider implements TreeDataProvider<Element>, Disposable {
 
@@ -148,7 +158,27 @@ export class GitContextProvider implements TreeDataProvider<Element>, Disposable
 		const filename = path.basename(fileEntry.file.relPath);
 		await commands.executeCommand('vscode.diff',
 			left, right, filename + " (Working Tree)", options);
-	} 
+	}
+
+	async promptChangeBase() {
+		const refs = await this.repository.getRefs();
+		const picks = refs.filter(ref => ref.name).map(ref => new RefItem(ref));
+
+		const placeHolder = 'Select a ref to use as comparison base';
+		const choice = await window.showQuickPick<RefItem>(picks, { placeHolder });
+
+		if (!choice) {
+			return;
+		}
+
+		const baseRef = choice.ref.name as string;
+		if (this.baseRef == baseRef) {
+			return;
+		}
+		this.baseRef = baseRef;
+		await this.initDiff();
+		this._onDidChangeTreeData.fire();
+	}
 
 	dispose(): void {
 		this.disposables.forEach(d => d.dispose());

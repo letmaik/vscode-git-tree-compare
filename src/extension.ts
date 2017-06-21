@@ -29,13 +29,16 @@ export function activate(context: ExtensionContext) {
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
 		const provider = new GitContextProvider(repository);
-		window.registerTreeDataProvider('gitContext', provider);
+		window.registerTreeDataProvider('gitBranchCompare', provider);
 
-		commands.registerCommand('gitContext.diffWithBase', node => {
+		commands.registerCommand('gitBranchCompare.diffWithBase', node => {
 			if (!node) {
 				return;
 			}
 			provider.showDiffWithBase(node)
+		});
+		commands.registerCommand('gitBranchCompare.changeBase', () => {
+			provider.promptChangeBase()
 		});
 	})
 }
