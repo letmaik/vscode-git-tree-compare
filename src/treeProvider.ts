@@ -9,7 +9,7 @@ import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { getDefaultBranch, diffIndex, IDiffStatus } from './git_helper'
+import { getDefaultBranch, diffIndex, IDiffStatus } from './gitHelper'
 import { debounce } from './git/decorators'
 
 class FileElement {
@@ -36,7 +36,7 @@ class RefItem implements QuickPickItem {
 	}
 }
 
-export class GitContextProvider implements TreeDataProvider<Element>, Disposable {
+export class GitCompareBranchProvider implements TreeDataProvider<Element>, Disposable {
 
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
 	readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
