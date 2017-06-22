@@ -1,9 +1,9 @@
 {
 	"name": "vscode-git-branch-compare",
-	"displayName": "tbd",
-	"description": "tbd",
+	"displayName": "Git Branch Compare",
+	"description": "Compare your worktree against a base branch",
 	"version": "0.0.1",
-	"publisher": "letmaik",
+	"publisher": "Maik Riechert",
 	"engines": {
 		"vscode": "^1.13.0"
 	},
@@ -54,12 +54,12 @@
 		"postinstall": "node ./node_modules/vscode/bin/install"
 	},
 	"devDependencies": {
-		"typescript": "^2.1.4",
-		"vscode": "^1.0.0",
+		"typescript": "^2.3.4",
+		"vscode": "^1.1.0",
 		"@types/node": "*"
 	},
 	"dependencies": {
-		"iconv-lite": "0.4.15",
+		"iconv-lite": "^0.4.15",
 		"vscode-nls": "^2.0.1"
 	}
 }

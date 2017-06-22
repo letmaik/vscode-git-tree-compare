@@ -8,7 +8,9 @@
 		],
 		"sourceMap": true,
 		"rootDir": ".",
+		"alwaysStrict": true,
 		"strictNullChecks": true,
+		"forceConsistentCasingInFileNames": true,
 		"experimentalDecorators": true
 	},
 	"include": [

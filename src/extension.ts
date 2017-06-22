@@ -1,9 +1,7 @@
-'use strict';
-
 import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
-import { GitCompareBranchProvider } from './treeProvider'
-import { createGit, getDefaultBranch } from './gitHelper'
+import { GitCompareBranchProvider } from './treeProvider';
+import { createGit, getDefaultBranch } from './gitHelper';
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
@@ -35,10 +33,10 @@ export function activate(context: ExtensionContext) {
 			if (!node) {
 				return;
 			}
-			provider.showDiffWithBase(node)
+			provider.showDiffWithBase(node);
 		});
 		commands.registerCommand('gitBranchCompare.changeBase', () => {
-			provider.promptChangeBase()
+			provider.promptChangeBase();
 		});
 	})
 }
