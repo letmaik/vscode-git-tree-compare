@@ -62,19 +62,20 @@ export interface IDiffStatus {
 	 * U Untracked file
 	 */
 	status: StatusCode
-	relPath: string
-	absUri: Uri
+
+	/** absolute path to file on disk */
+	absPath: string
 }
 
 class DiffStatus implements IDiffStatus {
-	readonly absUri: Uri;
+	readonly absPath: string;
 
-	constructor(repo: Repository, public status: StatusCode, public relPath: string) {
-		this.absUri = Uri.file(path.join(repo.root, relPath));
+	constructor(repo: Repository, public status: StatusCode, relPath: string) {
+		this.absPath = path.join(repo.root, relPath);
 	}
 }
 
-type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U'
+export type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U'
 
 function sanitizeStatus(status: string): StatusCode {
 	if (status == 'U') {
@@ -101,6 +102,6 @@ export async function diffIndex(repo: Repository, ref: string) {
 		.map(line => new DiffStatus(repo, 'U' as 'U', line));
 
 	const statuses = diffIndexStatuses.concat(untrackedStatuses);
-	statuses.sort((s1, s2) => s1.relPath.localeCompare(s2.relPath))
+	statuses.sort((s1, s2) => s1.absPath.localeCompare(s2.absPath))
 	return statuses;
 }

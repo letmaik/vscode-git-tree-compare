@@ -1,7 +1,7 @@
 {
-	"name": "vscode-git-branch-compare",
-	"displayName": "Git Branch Compare",
-	"description": "Compare your worktree against a base branch",
+	"name": "vscode-git-tree-compare",
+	"displayName": "Git Tree Compare",
+	"description": "Compare your worktree against a base branch or tag, displayed as tree",
 	"version": "0.0.1",
 	"publisher": "Maik Riechert",
 	"engines": {
@@ -11,41 +11,55 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onView:gitBranchCompare"
+		"onView:gitTreeCompare"
 	],
 	"main": "./out/src/extension",
 	"contributes": {
 		"views": {
 			"explorer": [
 				{
-					"id": "gitBranchCompare",
-					"name": "Branch Compare"
+					"id": "gitTreeCompare",
+					"name": "Git Tree Compare"
 				}
 			]
 		},
 		"commands": [
 			{
-				"command": "gitBranchCompare.diffWithBase",
+				"command": "gitTreeCompare.diffWithBase",
 				"title": "Compare File with Base",
-				"category": "Branch Compare"
+				"category": "Git Tree Compare"
 			},
 			{
-				"command": "gitBranchCompare.changeBase",
+				"command": "gitTreeCompare.changeBase",
 				"title": "Change Base...",
-				"category": "Branch Compare"
+				"category": "Git Tree Compare"
 			}
 		],
 		"menus": {
 			"view/item/context": [
 				{
-					"command": "gitBranchCompare.diffWithBase",
-					"when": "view == gitBranchCompare && viewItem == file"
+					"command": "gitTreeCompare.diffWithBase",
+					"when": "view == gitTreeCompare && viewItem == file"
 				},
 				{
-					"command": "gitBranchCompare.changeBase",
-					"when": "view == gitBranchCompare && viewItem == branch"
+					"command": "gitTreeCompare.changeBase",
+					"when": "view == gitTreeCompare && viewItem == ref"
 				}
 			]
+		},
+		"configuration": {
+			"title": "Git Tree Compare",
+			"properties": {
+				"gitTreeCompare.root": {
+					"type": "string",
+					"enum": [
+						"workspace",
+						"repository"
+					],
+					"description": "The root of the tree when the workspace folder is not the same as the repository root",
+					"default": "workspace"
+				}
+			}
 		}
 	},
 	"scripts": {
