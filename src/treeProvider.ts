@@ -17,14 +17,19 @@ class FileElement implements IDiffStatus {
 }
 
 class FolderElement {
-	constructor(public absPath: string) {}
+	constructor(public absPath: string, public excludeTreeRoot?: boolean) {}
+}
+
+class RootElement {
+	// TODO without a member the type checker throws up otherwise further down
+	foo;
 }
 
 class RefElement {
 	constructor(public refName: string) {}
 }
 
-type Element = FileElement | FolderElement | RefElement
+type Element = FileElement | FolderElement | RootElement | RefElement
 type FileSystemElement = FileElement | FolderElement
 
 class RefItem implements QuickPickItem {
@@ -36,8 +41,6 @@ class RefItem implements QuickPickItem {
 	}
 }
 
-// TODO display any folder above workspace in '<root>' node (collapsed by default)
-
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
@@ -47,6 +50,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private readonly repoRoot: string;
 
 	private readonly diffFolderMapping: Map<string, IDiffStatus[]> = new Map();
+	private hasFilesOutsideTreeRoot: boolean;
 
 	private baseRef: string;
 	private HEAD: Ref;
@@ -92,9 +96,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			}
 			return [new RefElement(this.baseRef)];
 		} else if (element instanceof RefElement) {
-			return this.getFileSystemEntries(this.treeRoot);
+			const entries: Element[] = [];
+			if (this.hasFilesOutsideTreeRoot) {
+				entries.push(new RootElement());
+			}
+			return entries.concat(this.getFileSystemEntries(this.treeRoot));
+		} else if (element instanceof RootElement) {
+			return this.getFileSystemEntries(this.repoRoot, true);
 		} else if (element instanceof FolderElement) {
-			return this.getFileSystemEntries(element.absPath);
+			return this.getFileSystemEntries(element.absPath, element.excludeTreeRoot);
 		} 
 		assert(false, "unsupported element type");
 		return [];
@@ -115,9 +125,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			this.baseRef = baseRef ? baseRef : HEAD.name;
 		}
 
+		let hasFilesOutsideTreeRoot = false;
+
 		const diff = await diffIndex(this.repository, this.baseRef);
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
+
+			if (!hasFilesOutsideTreeRoot && !folder.startsWith(this.treeRoot)) {
+				hasFilesOutsideTreeRoot = true;
+			}
 
 			// add this and all parent folders to the folder map
 			let currentFolder = folder
@@ -131,6 +147,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			const entries = this.diffFolderMapping.get(folder)!;
 			entries.push(entry);
 		}
+		this.hasFilesOutsideTreeRoot = hasFilesOutsideTreeRoot;
 	}
 
 	@debounce(2000)
@@ -147,13 +164,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 	}
 
-	private getFileSystemEntries(folder: string): FileSystemElement[] {
+	private getFileSystemEntries(folder: string, excludeTreeRoot?: boolean): FileSystemElement[] {
 		const entries: FileSystemElement[] = [];
 
 		// add direct subfolders
 		for (const folder2 of this.diffFolderMapping.keys()) {
+			if (excludeTreeRoot && folder2 == this.treeRoot) {
+				continue;
+			}
 			if (path.dirname(folder2) == folder) {
-				entries.push(new FolderElement(folder2));
+				entries.push(new FolderElement(folder2, excludeTreeRoot));
 			}
 		}
 
@@ -230,6 +250,14 @@ function toTreeItem(element: Element): TreeItem {
 		const label = path.basename(element.absPath);
 		const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
 		item.contextValue = 'folder';
+		return item;
+	} else if (element instanceof RootElement) {
+		const label = '<ROOT>';
+		const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
+		item.contextValue = 'root';
+
+		// TODO icon
+		//item.iconPath = '';
 		return item;
 	} else if (element instanceof RefElement) {
 		const label = element.refName;
