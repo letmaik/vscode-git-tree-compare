@@ -73,8 +73,13 @@
 						"workspace",
 						"repository"
 					],
-					"description": "The root of the tree when the workspace folder is not the same as the repository root",
+					"description": "The root of the tree when the workspace folder is not the same as the repository root.",
 					"default": "workspace"
+				},
+				"gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
+					"type": "boolean",
+					"description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special <ROOT> folder.",
+					"default": true
 				}
 			}
 		}

@@ -51,6 +51,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private readonly diffFolderMapping: Map<string, IDiffStatus[]> = new Map();
 	private hasFilesOutsideTreeRoot: boolean;
+	private includeFilesOutsideWorkspaceRoot: boolean;
 
 	private baseRef: string;
 	private HEAD: Ref;
@@ -59,7 +60,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	constructor(private repository: Repository) {		
 		this.repoRoot = path.normalize(repository.root);
-		this.setTreeRootFromConfig();
+		this.readConfig();
 
 		this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
 
@@ -76,13 +77,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
 	}
 
-	private setTreeRootFromConfig() {
+	private readConfig() {
 		const config = workspace.getConfiguration(NAMESPACE);
 		if (config.get<string>('root') == 'repository') {
 			this.treeRoot = this.repoRoot;
 		} else {
 			this.treeRoot = workspace.rootPath!;
 		}
+		this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
 	}
 
 	getTreeItem(element: Element): TreeItem {
@@ -97,7 +99,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			return [new RefElement(this.baseRef)];
 		} else if (element instanceof RefElement) {
 			const entries: Element[] = [];
-			if (this.hasFilesOutsideTreeRoot) {
+			if (this.hasFilesOutsideTreeRoot && this.includeFilesOutsideWorkspaceRoot) {
 				entries.push(new RootElement());
 			}
 			return entries.concat(this.getFileSystemEntries(this.treeRoot));
@@ -158,8 +160,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private handleConfigChange() {
 		const oldRoot = this.treeRoot;
-		this.setTreeRootFromConfig();
-		if (oldRoot != this.treeRoot) {
+		const oldInclude = this.includeFilesOutsideWorkspaceRoot;
+		this.readConfig();
+		if (oldRoot != this.treeRoot || oldInclude != this.includeFilesOutsideWorkspaceRoot) {
 			this._onDidChangeTreeData.fire();
 		}
 	}
