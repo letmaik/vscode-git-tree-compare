@@ -5,6 +5,7 @@ import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
 		 QuickPickItem,
 	     workspace, commands, window } from 'vscode'
+import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
@@ -72,7 +73,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	}
 
 	private setTreeRootFromConfig() {
-		const config = workspace.getConfiguration('gitTreeCompare');
+		const config = workspace.getConfiguration(NAMESPACE);
 		if (config.get<string>('root') == 'repository') {
 			this.treeRoot = this.repoRoot;
 		} else {

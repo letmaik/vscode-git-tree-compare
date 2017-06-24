@@ -1,5 +1,6 @@
 import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
+import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider } from './treeProvider';
 import { createGit, getDefaultBranch } from './gitHelper';
 import { RefType } from './git/git'
@@ -27,15 +28,15 @@ export function activate(context: ExtensionContext) {
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
 		const provider = new GitTreeCompareProvider(repository);
-		window.registerTreeDataProvider('gitTreeCompare', provider);
+		window.registerTreeDataProvider(NAMESPACE, provider);
 
-		commands.registerCommand('gitTreeCompare.diffWithBase', node => {
+		commands.registerCommand(NAMESPACE + '.diffWithBase', node => {
 			if (!node) {
 				return;
 			}
 			provider.showDiffWithBase(node);
 		});
-		commands.registerCommand('gitTreeCompare.changeBase', () => {
+		commands.registerCommand(NAMESPACE + '.changeBase', () => {
 			provider.promptChangeBase();
 		});
 	})
