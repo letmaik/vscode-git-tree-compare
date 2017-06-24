@@ -3,13 +3,30 @@
 	"displayName": "Git Tree Compare",
 	"description": "Compare your worktree against a base branch or tag, displayed as tree",
 	"version": "0.0.1",
-	"publisher": "Maik Riechert",
-	"engines": {
-		"vscode": "^1.13.0"
+	"preview": true,
+	"author": {
+		"name": "Maik Riechert",
+		"url": "https://github.com/letmaik"
 	},
+	"publisher": "letmaik",
+	"license": "SEE LICENSE FILE",
 	"categories": [
 		"Other"
 	],
+	"keywords": [
+		"git", "diff", "compare"
+	],
+    "bugs": {
+        "url": "https://github.com/letmaik/vscode-git-branch-compare/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/letmaik/vscode-git-branch-compare.git"
+    },
+    "homepage": "https://github.com/letmaik/vscode-git-branch-compare",
+	"engines": {
+		"vscode": "^1.13.0"
+	},
 	"activationEvents": [
 		"onView:gitTreeCompare"
 	],
