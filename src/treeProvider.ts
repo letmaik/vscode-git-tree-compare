@@ -41,6 +41,11 @@ class RefItem implements QuickPickItem {
 	}
 }
 
+// FIXME quickly changing config settings triggers the case that diffFolderMapping is updated async while the tree is redrawn
+//    which can lead to undefined references
+// -> it would be better to make it immutable and supply diffFolderMapping to Element nodes so that this.diffFolderMapping
+//    is only used for the root empty node -> remove "readonly" and create new Map each time!
+
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
