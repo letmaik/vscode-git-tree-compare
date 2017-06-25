@@ -256,12 +256,9 @@ function toTreeItem(element: Element): TreeItem {
 		item.contextValue = 'folder';
 		return item;
 	} else if (element instanceof RootElement) {
-		const label = '<ROOT>';
+		const label = '/';
 		const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
 		item.contextValue = 'root';
-
-		// TODO icon
-		//item.iconPath = '';
 		return item;
 	} else if (element instanceof RefElement) {
 		const label = element.refName;

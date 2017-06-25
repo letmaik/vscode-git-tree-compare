@@ -83,7 +83,7 @@
 				},
 				"gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
 					"type": "boolean",
-					"description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special <ROOT> folder.",
+					"description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
 					"default": true
 				}
 			}
