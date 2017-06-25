@@ -53,6 +53,12 @@
 			}
 		],
 		"menus": {
+			"view/title": [
+				{
+					"command": "gitTreeCompare.changeBase",
+					"when": "view == gitTreeCompare"
+				}
+			],
 			"view/item/context": [
 				{
 					"command": "gitTreeCompare.diffWithBase",
