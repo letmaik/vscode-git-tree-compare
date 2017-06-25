@@ -9,6 +9,7 @@
 	},
 	"publisher": "letmaik",
 	"license": "SEE LICENSE FILE",
+	"icon": "resources/logo.png",
 	"categories": [
 		"Other"
 	],
