@@ -41,11 +41,6 @@ class RefItem implements QuickPickItem {
 	}
 }
 
-// FIXME quickly changing config settings triggers the case that diffFolderMapping is updated async while the tree is redrawn
-//    which can lead to undefined references
-// -> it would be better to make it immutable and supply diffFolderMapping to Element nodes so that this.diffFolderMapping
-//    is only used for the root empty node -> remove "readonly" and create new Map each time!
-
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
@@ -54,7 +49,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private treeRoot: string;
 	private readonly repoRoot: string;
 
-	private readonly diffFolderMapping: Map<string, IDiffStatus[]> = new Map();
+	private diffFolderMapping: Map<string, IDiffStatus[]>;
 	private hasFilesOutsideTreeRoot: boolean;
 	private includeFilesOutsideWorkspaceRoot: boolean;
 
@@ -98,7 +93,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	async getChildren(element?: Element): Promise<Element[]> {
 		if (!element) {
-			if (this.diffFolderMapping.size == 0) {
+			if (!this.diffFolderMapping) {
 				await this.initDiff();
 			}
 			return [new RefElement(this.baseRef)];
@@ -118,8 +113,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	}
 
 	private async initDiff() {
-		this.diffFolderMapping.clear();
-		this.diffFolderMapping.set(this.repoRoot, new Array());
+		const mapping = new Map<string, IDiffStatus[]>();
+		mapping.set(this.repoRoot, new Array());
 
 		const HEAD = await this.repository.getHEAD();
 		if (!HEAD.name) {
@@ -145,16 +140,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			// add this and all parent folders to the folder map
 			let currentFolder = folder
 			while (currentFolder != this.repoRoot) {
-				if (!this.diffFolderMapping.has(currentFolder)) {
-					this.diffFolderMapping.set(currentFolder, new Array());
+				if (!mapping.has(currentFolder)) {
+					mapping.set(currentFolder, new Array());
 				}
 				currentFolder = path.dirname(currentFolder)
 			} 
 
-			const entries = this.diffFolderMapping.get(folder)!;
+			const entries = mapping.get(folder)!;
 			entries.push(entry);
 		}
 		this.hasFilesOutsideTreeRoot = hasFilesOutsideTreeRoot;
+		this.diffFolderMapping = mapping;
 	}
 
 	@debounce(2000)
