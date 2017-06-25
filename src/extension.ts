@@ -1,9 +1,8 @@
-'use strict';
-
 import { ExtensionContext, workspace, window, Disposable, commands } from 'vscode';
 
-import { GitCompareBranchProvider } from './treeProvider'
-import { createGit, getDefaultBranch } from './gitHelper'
+import { NAMESPACE } from './constants'
+import { GitTreeCompareProvider } from './treeProvider';
+import { createGit, getDefaultBranch } from './gitHelper';
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
@@ -18,7 +17,7 @@ export function activate(context: ExtensionContext) {
 		return;
 	}
 
-	const outputChannel = window.createOutputChannel('Git Context');
+	const outputChannel = window.createOutputChannel('Git Tree Compare');
 	disposables.push(outputChannel);
 
 	createGit().then(async git => {
@@ -28,17 +27,17 @@ export function activate(context: ExtensionContext) {
 
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
-		const provider = new GitCompareBranchProvider(repository);
-		window.registerTreeDataProvider('gitBranchCompare', provider);
+		const provider = new GitTreeCompareProvider(repository);
+		window.registerTreeDataProvider(NAMESPACE, provider);
 
-		commands.registerCommand('gitBranchCompare.diffWithBase', node => {
+		commands.registerCommand(NAMESPACE + '.diffWithBase', node => {
 			if (!node) {
 				return;
 			}
-			provider.showDiffWithBase(node)
+			provider.showDiffWithBase(node);
 		});
-		commands.registerCommand('gitBranchCompare.changeBase', () => {
-			provider.promptChangeBase()
+		commands.registerCommand(NAMESPACE + '.changeBase', () => {
+			provider.promptChangeBase();
 		});
 	})
 }

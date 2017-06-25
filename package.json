@@ -1,51 +1,93 @@
 {
-	"name": "vscode-git-branch-compare",
-	"displayName": "tbd",
-	"description": "tbd",
-	"version": "0.0.1",
-	"publisher": "letmaik",
-	"engines": {
-		"vscode": "^1.13.0"
+	"name": "git-tree-compare",
+	"displayName": "Git Tree Compare",
+	"description": "Compare your worktree against a base branch or tag, displayed as tree",
+	"version": "0.1.0",
+	"author": {
+		"name": "Maik Riechert",
+		"url": "https://github.com/letmaik"
 	},
+	"publisher": "letmaik",
+	"license": "SEE LICENSE FILE",
+	"icon": "resources/logo.png",
 	"categories": [
 		"Other"
 	],
+	"keywords": [
+		"git", "diff", "tree", "compare", "branch"
+	],
+    "bugs": {
+        "url": "https://github.com/letmaik/vscode-git-branch-compare/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/letmaik/vscode-git-branch-compare.git"
+    },
+    "homepage": "https://github.com/letmaik/vscode-git-branch-compare",
+	"engines": {
+		"vscode": "^1.13.0"
+	},
 	"activationEvents": [
-		"onView:gitBranchCompare"
+		"onView:gitTreeCompare"
 	],
 	"main": "./out/src/extension",
 	"contributes": {
 		"views": {
 			"explorer": [
 				{
-					"id": "gitBranchCompare",
-					"name": "Branch Compare"
+					"id": "gitTreeCompare",
+					"name": "Git Tree Compare"
 				}
 			]
 		},
 		"commands": [
 			{
-				"command": "gitBranchCompare.diffWithBase",
+				"command": "gitTreeCompare.diffWithBase",
 				"title": "Compare File with Base",
-				"category": "Branch Compare"
+				"category": "Git Tree Compare"
 			},
 			{
-				"command": "gitBranchCompare.changeBase",
+				"command": "gitTreeCompare.changeBase",
 				"title": "Change Base...",
-				"category": "Branch Compare"
+				"category": "Git Tree Compare"
 			}
 		],
 		"menus": {
+			"view/title": [
+				{
+					"command": "gitTreeCompare.changeBase",
+					"when": "view == gitTreeCompare"
+				}
+			],
 			"view/item/context": [
 				{
-					"command": "gitBranchCompare.diffWithBase",
-					"when": "view == gitBranchCompare && viewItem == file"
+					"command": "gitTreeCompare.diffWithBase",
+					"when": "view == gitTreeCompare && viewItem == file"
 				},
 				{
-					"command": "gitBranchCompare.changeBase",
-					"when": "view == gitBranchCompare && viewItem == branch"
+					"command": "gitTreeCompare.changeBase",
+					"when": "view == gitTreeCompare && viewItem == ref"
 				}
 			]
+		},
+		"configuration": {
+			"title": "Git Tree Compare",
+			"properties": {
+				"gitTreeCompare.root": {
+					"type": "string",
+					"enum": [
+						"workspace",
+						"repository"
+					],
+					"description": "The root of the tree when the workspace folder is not the same as the repository root.",
+					"default": "workspace"
+				},
+				"gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
+					"type": "boolean",
+					"description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
+					"default": true
+				}
+			}
 		}
 	},
 	"scripts": {
@@ -54,12 +96,12 @@
 		"postinstall": "node ./node_modules/vscode/bin/install"
 	},
 	"devDependencies": {
-		"typescript": "^2.1.4",
-		"vscode": "^1.0.0",
+		"typescript": "^2.3.4",
+		"vscode": "^1.1.0",
 		"@types/node": "*"
 	},
 	"dependencies": {
-		"iconv-lite": "0.4.15",
+		"iconv-lite": "^0.4.15",
 		"vscode-nls": "^2.0.1"
 	}
 }
