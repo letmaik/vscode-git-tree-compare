@@ -1,9 +1,8 @@
 {
-	"name": "vscode-git-tree-compare",
+	"name": "git-tree-compare",
 	"displayName": "Git Tree Compare",
 	"description": "Compare your worktree against a base branch or tag, displayed as tree",
-	"version": "0.0.1",
-	"preview": true,
+	"version": "0.1.0",
 	"author": {
 		"name": "Maik Riechert",
 		"url": "https://github.com/letmaik"
@@ -14,7 +13,7 @@
 		"Other"
 	],
 	"keywords": [
-		"git", "diff", "compare"
+		"git", "diff", "tree", "compare", "branch"
 	],
     "bugs": {
         "url": "https://github.com/letmaik/vscode-git-branch-compare/issues"
