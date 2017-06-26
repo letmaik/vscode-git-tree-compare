@@ -182,9 +182,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 
 		// add files
-		const files = this.diffFolderMapping.get(folder)!;
-		for (const file of files) {
-			entries.push(new FileElement(file.absPath, file.status));
+		const files = this.diffFolderMapping.get(folder);
+		// there is no mapping entry if treeRoot!=repoRoot and
+		// there are no files within treeRoot, therefore, this is guarded
+		if (files) {
+			for (const file of files) {
+				entries.push(new FileElement(file.absPath, file.status));
+			}
 		}
 
 		return entries
