@@ -54,7 +54,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private includeFilesOutsideWorkspaceRoot: boolean;
 
 	private baseRef: string;
-	private HEAD: Ref;
 
 	private readonly disposables: Disposable[] = [];
 
@@ -116,12 +115,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const mapping = new Map<string, IDiffStatus[]>();
 		mapping.set(this.repoRoot, new Array());
 
-		const HEAD = await this.repository.getHEAD();
-		if (!HEAD.name) {
-			return;
-		}
-		if (!this.HEAD || this.HEAD.name != HEAD.name) {
-			this.HEAD = HEAD;
+		if (!this.baseRef) {
+			const HEAD = await this.repository.getHEAD();
+			if (!HEAD.name) {
+				return;
+			}
 			const baseRef = await getDefaultBranch(this.repository, HEAD);
 			// fall-back to HEAD if no default found
 			this.baseRef = baseRef ? baseRef : HEAD.name;
