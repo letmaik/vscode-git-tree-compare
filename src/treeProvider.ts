@@ -17,7 +17,7 @@ class FileElement implements IDiffStatus {
 }
 
 class FolderElement {
-	constructor(public absPath: string, public excludeTreeRoot?: boolean) {}
+	constructor(public absPath: string, public excludeTreeRoot?: boolean, public collapsed?: boolean) {}
 }
 
 class RootElement {
@@ -99,9 +99,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			}
 			return entries.concat(this.getFileSystemEntries(this.treeRoot));
 		} else if (element instanceof RootElement) {
-			return this.getFileSystemEntries(this.repoRoot, true);
+			return this.getFileSystemEntries(this.repoRoot, true, true);
 		} else if (element instanceof FolderElement) {
-			return this.getFileSystemEntries(element.absPath, element.excludeTreeRoot);
+			return this.getFileSystemEntries(element.absPath, element.excludeTreeRoot, element.collapsed);
 		} 
 		assert(false, "unsupported element type");
 		return [];
@@ -162,7 +162,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 	}
 
-	private getFileSystemEntries(folder: string, excludeTreeRoot?: boolean): FileSystemElement[] {
+	private getFileSystemEntries(folder: string, excludeTreeRoot?: boolean, collapsed?: boolean): FileSystemElement[] {
 		const entries: FileSystemElement[] = [];
 
 		// add direct subfolders
@@ -171,7 +171,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				continue;
 			}
 			if (path.dirname(folder2) == folder) {
-				entries.push(new FolderElement(folder2, excludeTreeRoot));
+				entries.push(new FolderElement(folder2, excludeTreeRoot, collapsed));
 			}
 		}
 
