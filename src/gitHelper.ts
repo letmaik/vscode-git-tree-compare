@@ -88,7 +88,7 @@ function sanitizeStatus(status: string): StatusCode {
 }
 
 export async function diffIndex(repo: Repository, ref: string) {
-	const diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref]);
+	const diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
 	const untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
 	
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
