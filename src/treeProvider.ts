@@ -66,14 +66,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const fsWatcher = workspace.createFileSystemWatcher('**');
 		this.disposables.push(fsWatcher);
 
-		// copied from vscode\extensions\git\src\model.ts
 		const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
-		const onGitChange = filterEvent(onWorkspaceChange, uri => /\/\.git\//.test(uri.path));
-		const onRelevantGitChange = filterEvent(onGitChange, uri => !/\/\.git\/index\.lock$/.test(uri.path));
-		const onNonGitChange = filterEvent(onWorkspaceChange, uri => !/\/\.git\//.test(uri.path));
-		const onRelevantWorkspaceChange = anyEvent(onRelevantGitChange, onNonGitChange);
+		const onNonGitChange = filterEvent(onWorkspaceChange, uri => !/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path));
 
-		this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
+		this.disposables.push(onNonGitChange(this.handleWorkspaceChange, this));
 	}
 
 	private readConfig() {
