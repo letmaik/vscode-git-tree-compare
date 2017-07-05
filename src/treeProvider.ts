@@ -3,7 +3,7 @@ import * as path from 'path'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
-		 QuickPickItem,
+		 QuickPickItem, ProgressLocation,
 	     workspace, commands, window } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
@@ -189,6 +189,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 		// add direct subfolders
 		for (const folder2 of this.diffFolderMapping.keys()) {
+			// FIXME excludeTreeRoot is broken as it only filters out /path/to/root
+			//       but not empty folders leading to it like /path/to
 			if (excludeTreeRoot && folder2 == this.treeRoot) {
 				continue;
 			}
@@ -245,9 +247,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		if (this.baseRef == baseRef) {
 			return;
 		}
-		await this.updateRefs(baseRef);
-		await this.initDiff();
-		this._onDidChangeTreeData.fire();
+		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {	
+			await this.updateRefs(baseRef);
+			await this.initDiff();
+			this._onDidChangeTreeData.fire();
+		});
 	}
 
 	dispose(): void {
