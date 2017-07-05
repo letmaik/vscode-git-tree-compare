@@ -9,7 +9,7 @@ import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { getDefaultBranch, diffIndex, IDiffStatus, StatusCode } from './gitHelper'
+import { getDefaultBranch, getMergeBase, diffIndex, IDiffStatus, StatusCode } from './gitHelper'
 import { debounce } from './git/decorators'
 
 class FileElement implements IDiffStatus {
@@ -54,6 +54,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private includeFilesOutsideWorkspaceRoot: boolean;
 
 	private baseRef: string;
+	private mergeBase: string;
 
 	private readonly disposables: Disposable[] = [];
 
@@ -99,7 +100,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			}
 			return entries.concat(this.getFileSystemEntries(this.treeRoot));
 		} else if (element instanceof RootElement) {
-			return this.getFileSystemEntries(this.repoRoot, true, true);
+			return this.getFileSystemEntries(this.repoRoot, true /*, true*/);
 		} else if (element instanceof FolderElement) {
 			return this.getFileSystemEntries(element.absPath, element.excludeTreeRoot, element.collapsed);
 		} 
@@ -107,23 +108,44 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		return [];
 	}
 
+	private async updateRefs(baseRef?: string): Promise<boolean>
+	{
+		// TODO remember HEAD and call this function if HEAD changed (to re-determine merge-base)
+
+		const HEAD = await this.repository.getHEAD();
+		if (!HEAD.name) {
+			return false;
+		}
+		if (!baseRef) {
+			baseRef = await getDefaultBranch(this.repository, HEAD);
+		}
+		let mergeBase
+		if (!baseRef) {
+			// fall-back to HEAD if no default found
+			baseRef = HEAD.name;
+			mergeBase = baseRef;
+		} else {
+			// determine merge base to create more sensible/compact diff
+			mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
+		}
+		this.baseRef = baseRef;
+		this.mergeBase = mergeBase;
+		return true;
+	} 
+
 	private async initDiff() {
 		const mapping = new Map<string, IDiffStatus[]>();
 		mapping.set(this.repoRoot, new Array());
 
 		if (!this.baseRef) {
-			const HEAD = await this.repository.getHEAD();
-			if (!HEAD.name) {
+			if (!await this.updateRefs()) {
 				return;
 			}
-			const baseRef = await getDefaultBranch(this.repository, HEAD);
-			// fall-back to HEAD if no default found
-			this.baseRef = baseRef ? baseRef : HEAD.name;
 		}
 
 		let hasFilesOutsideTreeRoot = false;
 
-		const diff = await diffIndex(this.repository, this.baseRef);
+		const diff = await diffIndex(this.repository, this.mergeBase);
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
 
@@ -190,7 +212,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	async showDiffWithBase(fileEntry: FileElement) {
 		const right = Uri.file(fileEntry.absPath);
-		const left = toGitUri(right, this.baseRef);
+		const left = toGitUri(right, this.mergeBase);
 		const status = fileEntry.status;
 
 		if (status == 'U' || status == 'A') {
@@ -223,7 +245,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		if (this.baseRef == baseRef) {
 			return;
 		}
-		this.baseRef = baseRef;
+		await this.updateRefs(baseRef);
 		await this.initDiff();
 		this._onDidChangeTreeData.fire();
 	}

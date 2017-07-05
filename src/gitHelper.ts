@@ -53,6 +53,12 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
 	return remoteHeadBranch;
 }
 
+export async function getMergeBase(repo: Repository, headRef: string, baseRef: string): Promise<string> {
+	const result = await repo.run(['merge-base', baseRef, headRef]);
+	const mergeBase = result.stdout.trim();
+	return mergeBase;
+}
+
 export interface IDiffStatus {
 	/**
 	 * A Addition of a file
