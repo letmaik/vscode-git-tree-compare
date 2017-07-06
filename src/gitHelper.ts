@@ -7,6 +7,7 @@ import { Askpass } from './git/askpass';
 import { toDisposable, denodeify } from './git/util';
 
 const readFile = denodeify<string>(fs.readFile);
+const stat = denodeify<fs.Stats>(fs.stat);
 
 export function denodeify2<R>(fn: Function): (...args) => Promise<R> {
 	return (...args) => new Promise<R>(c => fn(...args, r => c(r)));
@@ -57,6 +58,12 @@ export async function getMergeBase(repo: Repository, headRef: string, baseRef: s
 	const result = await repo.run(['merge-base', baseRef, headRef]);
 	const mergeBase = result.stdout.trim();
 	return mergeBase;
+}
+
+export async function getHeadModificationDate(repo: Repository): Promise<Date> {
+	const headPath = path.join(repo.root, '.git', 'HEAD');
+	const stats = await stat(headPath);
+	return stats.mtime;
 }
 
 export interface IDiffStatus {

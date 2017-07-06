@@ -1,5 +1,6 @@
 import * as assert from 'assert'
 import * as path from 'path'
+import * as fs from 'fs'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
@@ -9,7 +10,8 @@ import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { getDefaultBranch, getMergeBase, diffIndex, IDiffStatus, StatusCode } from './gitHelper'
+import { getDefaultBranch, getMergeBase, getHeadModificationDate,
+	     diffIndex, IDiffStatus, StatusCode } from './gitHelper'
 import { debounce } from './git/decorators'
 
 class FileElement implements IDiffStatus {
@@ -53,6 +55,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private hasFilesOutsideTreeRoot: boolean;
 	private includeFilesOutsideWorkspaceRoot: boolean;
 
+	private headLastChecked: Date;
 	private baseRef: string;
 	private mergeBase: string;
 
@@ -110,23 +113,27 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private async updateRefs(baseRef?: string): Promise<boolean>
 	{
-		// TODO remember HEAD and call this function if HEAD changed (to re-determine merge-base)
-
 		const HEAD = await this.repository.getHEAD();
+		this.headLastChecked = new Date();
 		if (!HEAD.name) {
 			return false;
 		}
 		if (!baseRef) {
 			baseRef = await getDefaultBranch(this.repository, HEAD);
 		}
-		let mergeBase
 		if (!baseRef) {
 			// fall-back to HEAD if no default found
 			baseRef = HEAD.name;
-			mergeBase = baseRef;
-		} else {
+		}
+		let mergeBase = baseRef;
+		if (baseRef != HEAD.name) {
 			// determine merge base to create more sensible/compact diff
-			mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
+			try {
+				mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
+			} catch (e) {
+				// sometimes the merge base cannot be determined
+				// this can be the case with shallow clones but may have other reasons
+			}				
 		}
 		this.baseRef = baseRef;
 		this.mergeBase = mergeBase;
@@ -169,10 +176,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		this.diffFolderMapping = mapping;
 	}
 
+	private async isHeadChanged() {
+		const mtime = await getHeadModificationDate(this.repository);
+		return mtime > this.headLastChecked;
+	}
+
 	@debounce(2000)
 	private async handleWorkspaceChange(path: Uri) {
+		if (await this.isHeadChanged()) {
+			// make sure merge base is updated when switching branches
+			await this.updateRefs(this.baseRef);
+		}
 		await this.initDiff();
-		this._onDidChangeTreeData.fire()
+		this._onDidChangeTreeData.fire();
 	}
 
 	private handleConfigChange() {
