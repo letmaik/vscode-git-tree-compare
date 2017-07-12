@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
-import { findGit, Git, Repository, Ref } from './git/git';
+import { findGit, Git, Repository, Ref, Branch, IExecutionResult } from './git/git';
 import { Askpass } from './git/askpass';
 import { toDisposable, denodeify } from './git/util';
 
@@ -30,7 +30,13 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
 	if (!head.name) {
 		return;
 	}
-	const headBranch = await repo.getBranch(head.name);
+	let headBranch: Branch;
+	try {
+		headBranch = await repo.getBranch(head.name);
+	} catch (e) {
+		// this can happen on a newly initialized repo without commits
+		return;
+	}
 	if (!headBranch.upstream) {
 		return;
 	}
@@ -101,8 +107,16 @@ function sanitizeStatus(status: string): StatusCode {
 }
 
 export async function diffIndex(repo: Repository, ref: string) {
-	const diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
-	const untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
+	let diffIndexResult: IExecutionResult;
+	let untrackedResult: IExecutionResult;
+	try {
+		diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
+		untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
+	} catch (e) {
+		// if any error occurs, ignore silently
+		// this can happen with newly initialized repos without commits
+		return [];
+	}
 	
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)

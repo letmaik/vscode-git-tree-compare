@@ -17,13 +17,13 @@
 		"git", "diff", "tree", "compare", "branch"
 	],
     "bugs": {
-        "url": "https://github.com/letmaik/vscode-git-branch-compare/issues"
+        "url": "https://github.com/letmaik/vscode-git-tree-compare/issues"
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/letmaik/vscode-git-branch-compare.git"
+        "url": "https://github.com/letmaik/vscode-git-tree-compare.git"
     },
-    "homepage": "https://github.com/letmaik/vscode-git-branch-compare",
+    "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
 	"engines": {
 		"vscode": "^1.13.0"
 	},
@@ -36,7 +36,8 @@
 			"explorer": [
 				{
 					"id": "gitTreeCompare",
-					"name": "Git Tree Compare"
+					"name": "Git Tree Compare",
+					"when": "scmProvider == git && config.git.enabled && gitState != norepo"
 				}
 			]
 		},
