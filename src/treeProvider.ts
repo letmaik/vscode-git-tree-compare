@@ -28,7 +28,7 @@ class RootElement {
 }
 
 class RefElement {
-	constructor(public refName: string) {}
+	constructor(public refName: string, public hasChildren: boolean) {}
 }
 
 type Element = FileElement | FolderElement | RootElement | RefElement
@@ -95,7 +95,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			if (!this.diffFolderMapping) {
 				await this.initDiff();
 			}
-			return [new RefElement(this.baseRef)];
+			return [new RefElement(this.baseRef, this.diffFolderMapping.size > 0)];
 		} else if (element instanceof RefElement) {
 			const entries: Element[] = [];
 			if (this.hasFilesOutsideTreeRoot && this.includeFilesOutsideWorkspaceRoot) {
@@ -142,8 +142,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private async initDiff() {
 		const mapping = new Map<string, IDiffStatus[]>();
-		mapping.set(this.repoRoot, new Array());
-
+		
 		if (!this.baseRef) {
 			if (!await this.updateRefs()) {
 				return;
@@ -153,6 +152,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		let hasFilesOutsideTreeRoot = false;
 
 		const diff = await diffIndex(this.repository, this.mergeBase);
+		if (diff.length > 0) {
+			mapping.set(this.repoRoot, new Array());
+		}
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
 
@@ -302,7 +304,8 @@ function toTreeItem(element: Element): TreeItem {
 		return item;
 	} else if (element instanceof RefElement) {
 		const label = element.refName;
-		const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
+		const state = element.hasChildren ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.None;
+		const item = new TreeItem(label, state);
 		item.contextValue = 'ref';
 		item.iconPath = {
 			light: path.join(iconRoot, 'light', 'git-compare.svg'),
