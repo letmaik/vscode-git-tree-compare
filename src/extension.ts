@@ -6,8 +6,6 @@ import { createGit, getDefaultBranch } from './gitHelper';
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
-// TODO if possible, only display the view if inside a git repo
-
 export function activate(context: ExtensionContext) {
 	const disposables: Disposable[] = [];
 	context.subscriptions.push(new Disposable(() => Disposable.from(...disposables).dispose()));
@@ -27,7 +25,7 @@ export function activate(context: ExtensionContext) {
 
 		const repositoryRoot = await git.getRepositoryRoot(rootPath);
 		const repository = git.open(repositoryRoot);
-		const provider = new GitTreeCompareProvider(repository);
+		const provider = new GitTreeCompareProvider(repository, context.workspaceState);
 		window.registerTreeDataProvider(NAMESPACE, provider);
 
 		commands.registerCommand(NAMESPACE + '.diffWithBase', node => {

@@ -4,7 +4,7 @@ import * as fs from 'fs'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
 	     Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
-		 QuickPickItem, ProgressLocation,
+		 QuickPickItem, ProgressLocation, Memento,
 	     workspace, commands, window } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
@@ -61,7 +61,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private readonly disposables: Disposable[] = [];
 
-	constructor(private repository: Repository) {		
+	constructor(private repository: Repository, private workspaceState: Memento) {		
 		this.repoRoot = path.normalize(repository.root);
 		this.readConfig();
 
@@ -84,6 +84,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			this.treeRoot = workspace.rootPath!;
 		}
 		this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
+	}
+
+	private getStoredBaseRef(): string | undefined {
+		return this.workspaceState.get<string>('baseRef');
+	}
+
+	private updateStoredBaseRef(baseRef: string) {
+		this.workspaceState.update('baseRef', baseRef);
 	}
 
 	getTreeItem(element: Element): TreeItem {
@@ -123,10 +131,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			return false;
 		}
 		if (!baseRef) {
+			// TODO check that the ref still exists and ignore otherwise
+			baseRef = this.getStoredBaseRef();
+		}
+		if (!baseRef) {
 			baseRef = await getDefaultBranch(this.repository, HEAD);
 		}
 		if (!baseRef) {
-			// fall-back to HEAD if no default found
 			baseRef = HEAD.name;
 		}
 		let mergeBase = baseRef;
@@ -141,6 +152,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 		this.baseRef = baseRef;
 		this.mergeBase = mergeBase;
+		this.updateStoredBaseRef(baseRef);
 		return true;
 	} 
 
