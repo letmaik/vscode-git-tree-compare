@@ -19,7 +19,7 @@ class FileElement implements IDiffStatus {
 }
 
 class FolderElement {
-	constructor(public absPath: string, public excludeTreeRoot?: boolean, public collapsed?: boolean) {}
+	constructor(public absPath: string, public useFilesOutsideTreeRoot?: boolean, public collapsed?: boolean) {}
 }
 
 class RootElement {
@@ -51,8 +51,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private treeRoot: string;
 	private readonly repoRoot: string;
 
-	private diffFolderMapping: Map<string, IDiffStatus[]>;
-	private hasFilesOutsideTreeRoot: boolean;
+	private filesInsideTreeRoot: Map<string, IDiffStatus[]>;
+	private filesOutsideTreeRoot: Map<string, IDiffStatus[]>;
 	private includeFilesOutsideWorkspaceRoot: boolean;
 
 	private headLastChecked: Date;
@@ -92,20 +92,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	async getChildren(element?: Element): Promise<Element[]> {
 		if (!element) {
-			if (!this.diffFolderMapping) {
+			if (!this.filesInsideTreeRoot) {
 				await this.initDiff();
 			}
-			return [new RefElement(this.baseRef, this.diffFolderMapping.size > 0)];
+			const hasFiles =
+				this.filesInsideTreeRoot.size > 0 || 
+				(this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0);
+
+			return [new RefElement(this.baseRef, hasFiles)];
 		} else if (element instanceof RefElement) {
 			const entries: Element[] = [];
-			if (this.hasFilesOutsideTreeRoot && this.includeFilesOutsideWorkspaceRoot) {
+			if (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0) {
 				entries.push(new RootElement());
 			}
 			return entries.concat(this.getFileSystemEntries(this.treeRoot));
 		} else if (element instanceof RootElement) {
 			return this.getFileSystemEntries(this.repoRoot, true /*, true*/);
 		} else if (element instanceof FolderElement) {
-			return this.getFileSystemEntries(element.absPath, element.excludeTreeRoot, element.collapsed);
+			return this.getFileSystemEntries(element.absPath, element.useFilesOutsideTreeRoot, element.collapsed);
 		} 
 		assert(false, "unsupported element type");
 		return [];
@@ -141,41 +145,41 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	} 
 
 	private async initDiff() {
-		const mapping = new Map<string, IDiffStatus[]>();
-		
 		if (!this.baseRef) {
 			if (!await this.updateRefs()) {
 				return;
 			}
 		}
 
-		let hasFilesOutsideTreeRoot = false;
-
 		const diff = await diffIndex(this.repository, this.mergeBase);
-		if (diff.length > 0) {
-			mapping.set(this.repoRoot, new Array());
-		}
+
+		const filesInsideTreeRoot = new Map<string, IDiffStatus[]>();
+		const filesOutsideTreeRoot = new Map<string, IDiffStatus[]>();
+
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
 
-			if (!hasFilesOutsideTreeRoot && !folder.startsWith(this.treeRoot)) {
-				hasFilesOutsideTreeRoot = true;
+			const isInsideTreeRoot = folder.startsWith(this.treeRoot);
+			const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+
+			if (files.size == 0) {
+				files.set(this.repoRoot, new Array());
 			}
 
 			// add this and all parent folders to the folder map
 			let currentFolder = folder
 			while (currentFolder != this.repoRoot) {
-				if (!mapping.has(currentFolder)) {
-					mapping.set(currentFolder, new Array());
+				if (!files.has(currentFolder)) {
+					files.set(currentFolder, new Array());
 				}
 				currentFolder = path.dirname(currentFolder)
 			} 
 
-			const entries = mapping.get(folder)!;
+			const entries = files.get(folder)!;
 			entries.push(entry);
 		}
-		this.hasFilesOutsideTreeRoot = hasFilesOutsideTreeRoot;
-		this.diffFolderMapping = mapping;
+		this.filesInsideTreeRoot = filesInsideTreeRoot;
+		this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 	}
 
 	private async isHeadChanged() {
@@ -202,27 +206,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 	}
 
-	private getFileSystemEntries(folder: string, excludeTreeRoot?: boolean, collapsed?: boolean): FileSystemElement[] {
+	private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot?: boolean, collapsed?: boolean): FileSystemElement[] {
 		const entries: FileSystemElement[] = [];
+		const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
 
 		// add direct subfolders
-		for (const folder2 of this.diffFolderMapping.keys()) {
-			// FIXME excludeTreeRoot is broken as it only filters out /path/to/root
-			//       but not empty folders leading to it like /path/to
-			if (excludeTreeRoot && folder2 == this.treeRoot) {
-				continue;
-			}
+		for (const folder2 of files.keys()) {
 			if (path.dirname(folder2) == folder) {
-				entries.push(new FolderElement(folder2, excludeTreeRoot, collapsed));
+				entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot, collapsed));
 			}
 		}
 
 		// add files
-		const files = this.diffFolderMapping.get(folder);
+		const fileEntries = files.get(folder);
 		// there is no mapping entry if treeRoot!=repoRoot and
 		// there are no files within treeRoot, therefore, this is guarded
-		if (files) {
-			for (const file of files) {
+		if (fileEntries) {
+			for (const file of fileEntries) {
 				entries.push(new FileElement(file.absPath, file.status));
 			}
 		}
