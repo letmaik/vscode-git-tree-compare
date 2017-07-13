@@ -34,6 +34,12 @@ export function activate(context: ExtensionContext) {
 			}
 			provider.showDiffWithBase(node);
 		});
+		commands.registerCommand(NAMESPACE + '.openFile', node => {
+			if (!node) {
+				return;
+			}
+			provider.openFile(node);
+		});
 		commands.registerCommand(NAMESPACE + '.changeBase', () => {
 			provider.promptChangeBase();
 		});

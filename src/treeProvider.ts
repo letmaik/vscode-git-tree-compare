@@ -48,6 +48,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
 	readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
+	private openChangesOnSelect: boolean;
+
 	private treeRoot: string;
 	private readonly repoRoot: string;
 
@@ -84,6 +86,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			this.treeRoot = workspace.rootPath!;
 		}
 		this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
+		this.openChangesOnSelect = config.get<string>('fileSelect') == 'changes';
 	}
 
 	private getStoredBaseRef(): string | undefined {
@@ -95,7 +98,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	}
 
 	getTreeItem(element: Element): TreeItem {
-		return toTreeItem(element);
+		return toTreeItem(element, this.openChangesOnSelect);
 	}
 
 	async getChildren(element?: Element): Promise<Element[]> {
@@ -212,8 +215,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private handleConfigChange() {
 		const oldRoot = this.treeRoot;
 		const oldInclude = this.includeFilesOutsideWorkspaceRoot;
+		const oldOpenChangesOnSelect = this.openChangesOnSelect;
 		this.readConfig();
-		if (oldRoot != this.treeRoot || oldInclude != this.includeFilesOutsideWorkspaceRoot) {
+		if (oldRoot != this.treeRoot || 
+		    oldInclude != this.includeFilesOutsideWorkspaceRoot || 
+			oldOpenChangesOnSelect != this.openChangesOnSelect) {
 			this._onDidChangeTreeData.fire();
 		}
 	}
@@ -262,6 +268,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			left, right, filename + " (Working Tree)", options);
 	}
 
+	async openFile(fileEntry: FileElement) {
+		const right = Uri.file(fileEntry.absPath);
+		const left = toGitUri(right, this.mergeBase);
+		const status = fileEntry.status;
+		const uri = status == 'D' ? left : right;
+		return commands.executeCommand('vscode.open', uri);
+	}
+
 	async promptChangeBase() {
 		const refs = await this.repository.getRefs();
 		const picks = refs.filter(ref => ref.name).map(ref => new RefItem(ref));
@@ -289,20 +303,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	}
 }
 
-function toTreeItem(element: Element): TreeItem {
+function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
 	const iconRoot = path.join(__dirname, '..', '..', 'resources', 'icons');
 	if (element instanceof FileElement) {
 		const label = path.basename(element.absPath);
 		const item = new TreeItem(label);
 		item.contextValue = 'file';
 		item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
-		if (element.status != 'D') {
-			item.command = {
-				command: 'vscode.open',
-				arguments: [Uri.file(element.absPath)],
-				title: ''
-			};
-		}
+		const command = openChangesOnSelect ? 'diffWithBase' : 'openFile';
+		item.command = {
+			command: NAMESPACE + '.' + command,
+			arguments: [element],
+			title: ''
+		};
 		return item;
 	} else if (element instanceof FolderElement) {
 		const label = path.basename(element.absPath);

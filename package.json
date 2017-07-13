@@ -44,7 +44,12 @@
 		"commands": [
 			{
 				"command": "gitTreeCompare.diffWithBase",
-				"title": "Compare File with Base",
+				"title": "Open Changes",
+				"category": "Git Tree Compare"
+			},
+			{
+				"command": "gitTreeCompare.openFile",
+				"title": "Open File",
 				"category": "Git Tree Compare"
 			},
 			{
@@ -66,6 +71,10 @@
 					"when": "view == gitTreeCompare && viewItem == file"
 				},
 				{
+					"command": "gitTreeCompare.openFile",
+					"when": "view == gitTreeCompare && viewItem == file"
+				},
+				{
 					"command": "gitTreeCompare.changeBase",
 					"when": "view == gitTreeCompare && viewItem == ref"
 				}
@@ -74,6 +83,15 @@
 		"configuration": {
 			"title": "Git Tree Compare",
 			"properties": {
+				"gitTreeCompare.fileSelect": {
+					"type": "string",
+					"enum": [
+						"file",
+						"changes"
+					],
+					"description": "When selecting a file in the tree, whether to open it or show its changes.",
+					"default": "file"
+				},
 				"gitTreeCompare.root": {
 					"type": "string",
 					"enum": [
