@@ -316,10 +316,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {	
 			try {
 				await this.updateRefs(baseRef);
+			} catch (e) {
+				window.showErrorMessage('Updating the git tree base failed: ' + (<Error>e).message);
+				return;
+			}
+			try {
 				await this.initDiff();
 			} catch (e) {
-				window.showErrorMessage('Git Tree Compare had problems updating the tree base: ' + (<Error>e).message);
-				return;
+				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
+				// clear the tree as it would be confusing to display the old tree under the new base
+				this.filesInsideTreeRoot = new Map();
+				this.filesOutsideTreeRoot = new Map();
 			}
 			this._onDidChangeTreeData.fire();
 		});
