@@ -12,7 +12,7 @@ import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
 import { getDefaultBranch, getMergeBase, getHeadModificationDate,
 	     diffIndex, IDiffStatus, StatusCode } from './gitHelper'
-import { debounce } from './git/decorators'
+import { debounce, throttle } from './git/decorators'
 
 class FileElement implements IDiffStatus {
 	constructor(public absPath: string, public status: StatusCode) {}
@@ -159,6 +159,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		return true;
 	} 
 
+	@throttle
 	private async initDiff() {
 		if (!this.baseRef) {
 			if (!await this.updateRefs()) {
