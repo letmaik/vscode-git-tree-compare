@@ -104,7 +104,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	async getChildren(element?: Element): Promise<Element[]> {
 		if (!element) {
 			if (!this.filesInsideTreeRoot) {
-				await this.initDiff();
+				try {
+					await this.initDiff();
+				} catch (e) {
+					// some error occured, ignore and try again next time
+					console.log('Ignoring initDiff() error during initial getChildren()', e);
+					return [];
+				}
 			}
 			const hasFiles =
 				this.filesInsideTreeRoot.size > 0 || 
@@ -126,51 +132,54 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		return [];
 	}
 
-	private async updateRefs(baseRef?: string): Promise<boolean>
+	private async updateRefs(baseRef?: string): Promise<void>
 	{
-		const HEAD = await this.repository.getHEAD();
-		this.headLastChecked = new Date();
-		if (!HEAD.name) {
-			return false;
+		const oldHeadLastChecked = this.headLastChecked;
+		try {
+			this.headLastChecked = new Date();
+			const HEAD = await this.repository.getHEAD();
+			if (!HEAD.name) {
+				return;
+			}
+			if (!baseRef) {
+				// TODO check that the ref still exists and ignore otherwise
+				baseRef = this.getStoredBaseRef();
+			}
+			if (!baseRef) {
+				baseRef = await getDefaultBranch(this.repository, HEAD);
+			}
+			if (!baseRef) {
+				baseRef = HEAD.name;
+			}
+			let mergeBase = baseRef;
+			if (baseRef != HEAD.name) {
+				// determine merge base to create more sensible/compact diff
+				try {
+					mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
+				} catch (e) {
+					// sometimes the merge base cannot be determined
+					// this can be the case with shallow clones but may have other reasons
+				}				
+			}
+			this.baseRef = baseRef;
+			this.mergeBase = mergeBase;
+			this.updateStoredBaseRef(baseRef);
+		} catch (e) {
+			this.headLastChecked = oldHeadLastChecked;
+			throw e;
 		}
-		if (!baseRef) {
-			// TODO check that the ref still exists and ignore otherwise
-			baseRef = this.getStoredBaseRef();
-		}
-		if (!baseRef) {
-			baseRef = await getDefaultBranch(this.repository, HEAD);
-		}
-		if (!baseRef) {
-			baseRef = HEAD.name;
-		}
-		let mergeBase = baseRef;
-		if (baseRef != HEAD.name) {
-			// determine merge base to create more sensible/compact diff
-			try {
-				mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
-			} catch (e) {
-				// sometimes the merge base cannot be determined
-				// this can be the case with shallow clones but may have other reasons
-			}				
-		}
-		this.baseRef = baseRef;
-		this.mergeBase = mergeBase;
-		this.updateStoredBaseRef(baseRef);
-		return true;
-	} 
+	}
 
 	@throttle
 	private async initDiff() {
 		if (!this.baseRef) {
-			if (!await this.updateRefs()) {
-				return;
-			}
+			await this.updateRefs();
 		}
-
-		const diff = await diffIndex(this.repository, this.mergeBase);
 
 		const filesInsideTreeRoot = new Map<string, IDiffStatus[]>();
 		const filesOutsideTreeRoot = new Map<string, IDiffStatus[]>();
+
+		let diff = await diffIndex(this.repository, this.mergeBase);
 
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
@@ -207,9 +216,21 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private async handleWorkspaceChange(path: Uri) {
 		if (await this.isHeadChanged()) {
 			// make sure merge base is updated when switching branches
-			await this.updateRefs(this.baseRef);
+			try {
+				await this.updateRefs(this.baseRef);
+			} catch (e) {
+				// some error occured, ignore and try again next time
+				console.log('Ignoring updateRefs() error during handleWorkspaceChange()', e);
+				return;
+			}
 		}
-		await this.initDiff();
+		try {
+			await this.initDiff();
+		} catch (e) {
+			// some error occured, ignore and try again next time
+			console.log('Ignoring initDiff() error during handleWorkspaceChange()', e);
+			return;
+		}
 		this._onDidChangeTreeData.fire();
 	}
 
@@ -293,8 +314,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			return;
 		}
 		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {	
-			await this.updateRefs(baseRef);
-			await this.initDiff();
+			try {
+				await this.updateRefs(baseRef);
+				await this.initDiff();
+			} catch (e) {
+				window.showErrorMessage('Git Tree Compare had problems updating the tree base: ' + (<Error>e).message);
+				return;
+			}
 			this._onDidChangeTreeData.fire();
 		});
 	}

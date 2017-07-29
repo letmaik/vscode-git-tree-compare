@@ -107,16 +107,9 @@ function sanitizeStatus(status: string): StatusCode {
 }
 
 export async function diffIndex(repo: Repository, ref: string) {
-	let diffIndexResult: IExecutionResult;
-	let untrackedResult: IExecutionResult;
-	try {
-		diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
-		untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
-	} catch (e) {
-		// if any error occurs, ignore silently
-		// this can happen with newly initialized repos without commits
-		return [];
-	}
+	// exceptions can happen with newly initialized repos without commits, or when git is busy
+	let diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
+	let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
 	
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)
