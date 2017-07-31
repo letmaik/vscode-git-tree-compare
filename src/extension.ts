@@ -43,5 +43,8 @@ export function activate(context: ExtensionContext) {
 		commands.registerCommand(NAMESPACE + '.changeBase', () => {
 			provider.promptChangeBase();
 		});
+		commands.registerCommand(NAMESPACE + '.refresh', () => {
+			provider.manualRefresh();
+		});
 	})
 }

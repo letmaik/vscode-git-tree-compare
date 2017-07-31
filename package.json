@@ -56,6 +56,11 @@
 				"command": "gitTreeCompare.changeBase",
 				"title": "Change Base...",
 				"category": "Git Tree Compare"
+			},
+			{
+				"command": "gitTreeCompare.refresh",
+				"title": "Refresh",
+				"category": "Git Tree Compare"
 			}
 		],
 		"menus": {
@@ -63,6 +68,10 @@
 				{
 					"command": "gitTreeCompare.changeBase",
 					"when": "view == gitTreeCompare"
+				},
+				{
+					"command": "gitTreeCompare.refresh",
+					"when": "view == gitTreeCompare && !config.gitTreeCompare.autoRefresh"
 				}
 			],
 			"view/item/context": [
@@ -77,12 +86,21 @@
 				{
 					"command": "gitTreeCompare.changeBase",
 					"when": "view == gitTreeCompare && viewItem == ref"
+				},
+				{
+					"command": "gitTreeCompare.refresh",
+					"when": "view == gitTreeCompare && viewItem == ref && !config.gitTreeCompare.autoRefresh"
 				}
 			]
 		},
 		"configuration": {
 			"title": "Git Tree Compare",
 			"properties": {
+				"gitTreeCompare.autoRefresh": {
+					"type": "boolean",
+					"description": "Whether to refresh the tree whenever a file in the workspace changes.",
+					"default": true
+				},
 				"gitTreeCompare.fileSelect": {
 					"type": "string",
 					"enum": [

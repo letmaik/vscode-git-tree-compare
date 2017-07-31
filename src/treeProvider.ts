@@ -49,6 +49,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
 	private openChangesOnSelect: boolean;
+	private autoRefresh: boolean;
 
 	private treeRoot: string;
 	private readonly repoRoot: string;
@@ -87,6 +88,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 		this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
 		this.openChangesOnSelect = config.get<string>('fileSelect') == 'changes';
+		this.autoRefresh = config.get<boolean>('autoRefresh', true);
 	}
 
 	private getStoredBaseRef(): string | undefined {
@@ -214,6 +216,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	@debounce(2000)
 	private async handleWorkspaceChange(path: Uri) {
+		if (!this.autoRefresh) {
+			return
+		}
 		if (await this.isHeadChanged()) {
 			// make sure merge base is updated when switching branches
 			try {
@@ -238,10 +243,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const oldRoot = this.treeRoot;
 		const oldInclude = this.includeFilesOutsideWorkspaceRoot;
 		const oldOpenChangesOnSelect = this.openChangesOnSelect;
+		const oldAutoRefresh = this.autoRefresh;
 		this.readConfig();
-		if (oldRoot != this.treeRoot || 
+		if (oldRoot != this.treeRoot ||
 		    oldInclude != this.includeFilesOutsideWorkspaceRoot || 
-			oldOpenChangesOnSelect != this.openChangesOnSelect) {
+			oldOpenChangesOnSelect != this.openChangesOnSelect ||
+			(!oldAutoRefresh && this.autoRefresh)) {
+
 			this._onDidChangeTreeData.fire();
 		}
 	}
@@ -313,7 +321,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		if (this.baseRef == baseRef) {
 			return;
 		}
-		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {	
+		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {
 			try {
 				await this.updateRefs(baseRef);
 			} catch (e) {
@@ -329,6 +337,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				this.filesOutsideTreeRoot = new Map();
 			}
 			this._onDidChangeTreeData.fire();
+		});
+	}
+
+	async manualRefresh() {
+		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async p => {
+			try {
+				await this.initDiff();
+				this._onDidChangeTreeData.fire();
+			} catch (e) {
+				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
+			}
 		});
 	}
 
