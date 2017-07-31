@@ -48,7 +48,7 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
 	}
 	// there is no git command equivalent to "git remote set-head" for reading the default branch
 	// however, the branch name is in the file .git/refs/remotes/$remote/HEAD
-	// the file format is: 
+	// the file format is:
 	// ref: refs/remotes/origin/master
 	const symRefPath = path.join(repo.root, '.git', 'refs', 'remotes', remote, 'HEAD');
 	const symRefExists = exists(symRefPath);
@@ -76,7 +76,7 @@ export interface IDiffStatus {
 	/**
 	 * A Addition of a file
 	 * D Deletion of a file
-	 * M Modification of file contents 
+	 * M Modification of file contents
 	 * C File has merge conflicts
 	 * U Untracked file
 	 */
@@ -110,13 +110,13 @@ export async function diffIndex(repo: Repository, ref: string) {
 	// exceptions can happen with newly initialized repos without commits, or when git is busy
 	let diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
 	let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
-	
+
 	const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
 		.filter(line => !!line)
 		.map(line =>
 			new DiffStatus(repo, sanitizeStatus(line[0]), line.substr(1).trim())
 		);
-	
+
 	const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
 		.filter(line => !!line)
 		.map(line => new DiffStatus(repo, 'U' as 'U', line));

@@ -64,7 +64,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private readonly disposables: Disposable[] = [];
 
-	constructor(private repository: Repository, private workspaceState: Memento) {		
+	constructor(private repository: Repository, private workspaceState: Memento) {
 		this.repoRoot = path.normalize(repository.root);
 		this.readConfig();
 
@@ -117,7 +117,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				}
 			}
 			const hasFiles =
-				this.filesInsideTreeRoot.size > 0 || 
+				this.filesInsideTreeRoot.size > 0 ||
 				(this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0);
 
 			return [new RefElement(this.baseRef, hasFiles)];
@@ -131,7 +131,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			return this.getFileSystemEntries(this.repoRoot, true /*, true*/);
 		} else if (element instanceof FolderElement) {
 			return this.getFileSystemEntries(element.absPath, element.useFilesOutsideTreeRoot, element.collapsed);
-		} 
+		}
 		assert(false, "unsupported element type");
 		return [];
 	}
@@ -163,7 +163,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				} catch (e) {
 					// sometimes the merge base cannot be determined
 					// this can be the case with shallow clones but may have other reasons
-				}				
+				}
 			}
 			this.baseRef = baseRef;
 			this.mergeBase = mergeBase;
@@ -202,7 +202,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 					files.set(currentFolder, new Array());
 				}
 				currentFolder = path.dirname(currentFolder)
-			} 
+			}
 
 			const entries = files.get(folder)!;
 			entries.push(entry);
@@ -248,7 +248,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const oldAutoRefresh = this.autoRefresh;
 		this.readConfig();
 		if (oldRoot != this.treeRoot ||
-		    oldInclude != this.includeFilesOutsideWorkspaceRoot || 
+		    oldInclude != this.includeFilesOutsideWorkspaceRoot ||
 			oldOpenChangesOnSelect != this.openChangesOnSelect ||
 			(!oldAutoRefresh && this.autoRefresh)) {
 
@@ -290,8 +290,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 		if (status == 'D') {
 			return commands.executeCommand('vscode.open', left);
-		}		
-		
+		}
+
 		const options: TextDocumentShowOptions = {
 			preview: true
 		};
