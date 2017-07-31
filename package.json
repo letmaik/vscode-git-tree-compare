@@ -71,7 +71,7 @@
 				},
 				{
 					"command": "gitTreeCompare.refresh",
-					"when": "view == gitTreeCompare && !config.gitTreeCompare.autoRefresh"
+					"when": "view == gitTreeCompare"
 				}
 			],
 			"view/item/context": [
@@ -89,7 +89,7 @@
 				},
 				{
 					"command": "gitTreeCompare.refresh",
-					"when": "view == gitTreeCompare && viewItem == ref && !config.gitTreeCompare.autoRefresh"
+					"when": "view == gitTreeCompare && viewItem == ref"
 				}
 			]
 		},
