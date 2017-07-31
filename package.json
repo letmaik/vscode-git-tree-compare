@@ -103,7 +103,7 @@
 				},
 				"gitTreeCompare.openChanges": {
 					"type": "boolean",
-					"description": "When selecting a file in the tree, whether to show its changes or just open the workspace file.",
+					"description": "When selecting a modified file in the tree, whether to show its changes or just open the workspace file.",
 					"default": true
 				},
 				"gitTreeCompare.root": {
