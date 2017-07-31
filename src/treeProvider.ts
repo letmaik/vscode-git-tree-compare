@@ -87,7 +87,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			this.treeRoot = workspace.rootPath!;
 		}
 		this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
-		this.openChangesOnSelect = config.get<string>('fileSelect') == 'changes';
+		this.openChangesOnSelect = config.get<boolean>('openChanges', true);
 		this.autoRefresh = config.get<boolean>('autoRefresh', true);
 	}
 
@@ -278,7 +278,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		return entries
 	}
 
-	async showDiffWithBase(fileEntry: FileElement) {
+	async openChanges(fileEntry: FileElement) {
 		const right = Uri.file(fileEntry.absPath);
 		const left = toGitUri(right, this.mergeBase);
 		const status = fileEntry.status;
@@ -363,7 +363,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
 		const item = new TreeItem(label);
 		item.contextValue = 'file';
 		item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
-		const command = openChangesOnSelect ? 'diffWithBase' : 'openFile';
+		const command = openChangesOnSelect ? 'openChanges' : 'openFile';
 		item.command = {
 			command: NAMESPACE + '.' + command,
 			arguments: [element],

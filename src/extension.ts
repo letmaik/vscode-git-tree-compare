@@ -28,11 +28,11 @@ export function activate(context: ExtensionContext) {
 		const provider = new GitTreeCompareProvider(repository, context.workspaceState);
 		window.registerTreeDataProvider(NAMESPACE, provider);
 
-		commands.registerCommand(NAMESPACE + '.diffWithBase', node => {
+		commands.registerCommand(NAMESPACE + '.openChanges', node => {
 			if (!node) {
 				return;
 			}
-			provider.showDiffWithBase(node);
+			provider.openChanges(node);
 		});
 		commands.registerCommand(NAMESPACE + '.openFile', node => {
 			if (!node) {

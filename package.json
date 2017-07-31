@@ -43,7 +43,7 @@
 		},
 		"commands": [
 			{
-				"command": "gitTreeCompare.diffWithBase",
+				"command": "gitTreeCompare.openChanges",
 				"title": "Open Changes",
 				"category": "Git Tree Compare"
 			},
@@ -76,12 +76,12 @@
 			],
 			"view/item/context": [
 				{
-					"command": "gitTreeCompare.diffWithBase",
-					"when": "view == gitTreeCompare && viewItem == file"
+					"command": "gitTreeCompare.openChanges",
+					"when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
 				},
 				{
 					"command": "gitTreeCompare.openFile",
-					"when": "view == gitTreeCompare && viewItem == file"
+					"when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges"
 				},
 				{
 					"command": "gitTreeCompare.changeBase",
@@ -101,14 +101,10 @@
 					"description": "Whether to refresh the tree whenever a file in the workspace changes.",
 					"default": true
 				},
-				"gitTreeCompare.fileSelect": {
-					"type": "string",
-					"enum": [
-						"file",
-						"changes"
-					],
-					"description": "When selecting a file in the tree, whether to open it or show its changes.",
-					"default": "file"
+				"gitTreeCompare.openChanges": {
+					"type": "boolean",
+					"description": "When selecting a file in the tree, whether to show its changes or just open the workspace file.",
+					"default": true
 				},
 				"gitTreeCompare.root": {
 					"type": "string",
