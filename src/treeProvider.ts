@@ -189,16 +189,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		for (const entry of diff) {
 			const folder = path.dirname(entry.absPath);
 
-			const isInsideTreeRoot = folder.startsWith(this.treeRoot);
+			const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
 			const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+			const rootFolder = isInsideTreeRoot ? this.treeRoot : this.repoRoot;
 
-			if (files.size === 0) {
-				files.set(this.repoRoot, new Array());
+			if (files.size == 0) {
+				files.set(rootFolder, new Array());
 			}
 
 			// add this and all parent folders to the folder map
 			let currentFolder = folder
-			while (currentFolder != this.repoRoot) {
+			while (currentFolder != rootFolder) {
 				if (!files.has(currentFolder)) {
 					files.set(currentFolder, new Array());
 				}
@@ -210,6 +211,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 
 		// determine folders in the old diff which have changed entries and fire change events
+		const minDirtyFolders: string[] = [];
 		if (fireChangeEvents) {
 			const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
 				const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
@@ -219,7 +221,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				for (const {files, items} of [{files: oldFiles, items: oldItems},
 				                              {files: newFiles, items: newItems}]) {
 					// add direct subdirectories to items list
-					// TODO extend files*TreeRoot data structure to contain folder entries as well to avoid repeated linear scans
 					for (const folder of files.keys()) {
 						if (path.dirname(folder) === folderPath) {
 							items.push(folder);
@@ -229,39 +230,65 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				return !sortedArraysEqual(oldItems, newItems);
 			}
 
-			if (hasChanged(this.treeRoot, true)) {
+			const treeRootChanged = !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
+			const mustAddOrRemoveRepoRootElement = !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
+			if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
 				// full refresh
 				this.loadedFolderElements.clear();
 				this._onDidChangeTreeData.fire();
-				console.log('full refresh')
 			} else {
-				const dirtyFolders: FolderElement[] = [];
+				// collect all folders which had direct changes (not in subfolders)
+				const dirtyFoldersInsideTreeRoot: string[] = [];
+				const dirtyFoldersOutsideTreeRoot: string[] = [];
 				for (const folderPath of this.loadedFolderElements.keys()) {
-					const insideTreeRoot = folderPath.startsWith(this.treeRoot);
-					const files = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+					const isTreeRootSubfolder = folderPath.startsWith(this.treeRoot + path.sep);
+					const files = isTreeRootSubfolder ? filesInsideTreeRoot : filesOutsideTreeRoot;
+					const dirtyFolders = isTreeRootSubfolder ? dirtyFoldersInsideTreeRoot : dirtyFoldersOutsideTreeRoot;
 					if (!files.has(folderPath)) {
 						// folder was removed; dirty state will be handled by parent folder
 						this.loadedFolderElements.delete(folderPath);
-					} else if (hasChanged(folderPath, insideTreeRoot)) {
-						dirtyFolders.push(this.loadedFolderElements.get(folderPath)!);
+					} else if (hasChanged(folderPath, isTreeRootSubfolder)) {
+						dirtyFolders.push(folderPath);
 					}
 				}
 
-				// TODO merge all subfolder changes with parent changes to determine minimal set of change events
-				//  -> take into account the split between inside/outside of workspace root
-				// TODO clean up loadedFolderElements
-				const minDirtyFolders = dirtyFolders;
+				// merge all subfolder changes with parent changes to obtain minimal set of change events
+				for (const dirtyFolders of [dirtyFoldersInsideTreeRoot, dirtyFoldersOutsideTreeRoot]) {
+					dirtyFolders.sort();
+					let lastAddedFolder = '';
+					for (const dirtyFolder of dirtyFolders) {
+						if (!dirtyFolder.startsWith(lastAddedFolder + path.sep)) {
+							minDirtyFolders.push(dirtyFolder);
+							lastAddedFolder = dirtyFolder;
+						}
+					}
+				}
 
-
+				// clean up old subfolder entries of minDirtyFolders in loadedFolderElements
+				// note that the folders in minDirtyFolders are kept so that events can be sent
+				// (those entries will be overwritten anyway after the tree update)
 				for (const dirtyFolder of minDirtyFolders) {
-					this._onDidChangeTreeData.fire(dirtyFolder);
-					console.log('refresh for: ' + dirtyFolder.absPath)
+					const dirtyPrefix = dirtyFolder + path.sep;
+					for (const loadedFolder of this.loadedFolderElements.keys()) {
+						if (loadedFolder.startsWith(dirtyPrefix)) {
+							this.loadedFolderElements.delete(loadedFolder);
+						}
+					}
 				}
 			}
 		}
 
 		this.filesInsideTreeRoot = filesInsideTreeRoot;
 		this.filesOutsideTreeRoot = filesOutsideTreeRoot;
+
+		if (fireChangeEvents) {
+			// send events to trigger tree refresh
+			for (const dirtyFolder of minDirtyFolders) {
+				const element = this.loadedFolderElements.get(dirtyFolder);
+				assert(element !== undefined)
+				this._onDidChangeTreeData.fire(element);
+			}
+		}
 	}
 
 	private async isHeadChanged() {
@@ -379,12 +406,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			try {
 				await this.updateRefs(baseRef);
 			} catch (e) {
+				console.log(e);
 				window.showErrorMessage('Updating the git tree base failed: ' + (<Error>e).message);
 				return;
 			}
 			try {
 				await this.updateDiff(false);
 			} catch (e) {
+				console.log(e);
 				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
 				// clear the tree as it would be confusing to display the old tree under the new base
 				this.filesInsideTreeRoot = new Map();
@@ -401,6 +430,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			try {
 				await this.updateDiff(true);
 			} catch (e) {
+				console.log(e);
 				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
 			}
 		});
