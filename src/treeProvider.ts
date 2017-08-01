@@ -19,19 +19,20 @@ class FileElement implements IDiffStatus {
 }
 
 class FolderElement {
-	constructor(public absPath: string, public useFilesOutsideTreeRoot?: boolean, public collapsed?: boolean) {}
+	constructor(public absPath: string, public useFilesOutsideTreeRoot: boolean) {}
 }
 
-class RootElement {
-	// TODO without a member the type checker throws up otherwise further down
-	foo;
+class RepoRootElement extends FolderElement {
+	constructor(public absPath: string) {
+		super(absPath, true);
+	}
 }
 
 class RefElement {
 	constructor(public refName: string, public hasChildren: boolean) {}
 }
 
-type Element = FileElement | FolderElement | RootElement | RefElement
+type Element = FileElement | FolderElement | RepoRootElement | RefElement
 type FileSystemElement = FileElement | FolderElement
 
 class RefItem implements QuickPickItem {
@@ -57,6 +58,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	private filesInsideTreeRoot: Map<string, IDiffStatus[]>;
 	private filesOutsideTreeRoot: Map<string, IDiffStatus[]>;
 	private includeFilesOutsideWorkspaceRoot: boolean;
+	private readonly loadedFolderElements: Map<string, FolderElement> = new Map();
 
 	private headLastChecked: Date;
 	private baseRef: string;
@@ -83,7 +85,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 	private readConfig() {
 		const config = workspace.getConfiguration(NAMESPACE);
-		if (config.get<string>('root') == 'repository') {
+		if (config.get<string>('root') === 'repository') {
 			this.treeRoot = this.repoRoot;
 		} else {
 			this.treeRoot = workspace.rootPath!;
@@ -109,7 +111,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		if (!element) {
 			if (!this.filesInsideTreeRoot) {
 				try {
-					await this.initDiff();
+					await this.updateDiff(false);
 				} catch (e) {
 					// some error occured, ignore and try again next time
 					console.log('Ignoring initDiff() error during initial getChildren()', e);
@@ -124,13 +126,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		} else if (element instanceof RefElement) {
 			const entries: Element[] = [];
 			if (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0) {
-				entries.push(new RootElement());
+				entries.push(new RepoRootElement(this.repoRoot));
 			}
-			return entries.concat(this.getFileSystemEntries(this.treeRoot));
-		} else if (element instanceof RootElement) {
-			return this.getFileSystemEntries(this.repoRoot, true /*, true*/);
+			return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
 		} else if (element instanceof FolderElement) {
-			return this.getFileSystemEntries(element.absPath, element.useFilesOutsideTreeRoot, element.collapsed);
+			this.loadedFolderElements.set(element.absPath, element);
+			return this.getFileSystemEntries(element.absPath, element.useFilesOutsideTreeRoot);
 		}
 		assert(false, "unsupported element type");
 		return [];
@@ -175,7 +176,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	}
 
 	@throttle
-	private async initDiff() {
+	private async updateDiff(fireChangeEvents: boolean) {
 		if (!this.baseRef) {
 			await this.updateRefs();
 		}
@@ -191,7 +192,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			const isInsideTreeRoot = folder.startsWith(this.treeRoot);
 			const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
 
-			if (files.size == 0) {
+			if (files.size === 0) {
 				files.set(this.repoRoot, new Array());
 			}
 
@@ -207,6 +208,58 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			const entries = files.get(folder)!;
 			entries.push(entry);
 		}
+
+		// determine folders in the old diff which have changed entries and fire change events
+		if (fireChangeEvents) {
+			const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
+				const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
+				const newFiles = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+				const oldItems = oldFiles.get(folderPath)!.map(f => f.absPath);
+				const newItems = newFiles.get(folderPath)!.map(f => f.absPath);
+				for (const {files, items} of [{files: oldFiles, items: oldItems},
+				                              {files: newFiles, items: newItems}]) {
+					// add direct subdirectories to items list
+					// TODO extend files*TreeRoot data structure to contain folder entries as well to avoid repeated linear scans
+					for (const folder of files.keys()) {
+						if (path.dirname(folder) === folderPath) {
+							items.push(folder);
+						}
+					}
+				}
+				return !sortedArraysEqual(oldItems, newItems);
+			}
+
+			if (hasChanged(this.treeRoot, true)) {
+				// full refresh
+				this.loadedFolderElements.clear();
+				this._onDidChangeTreeData.fire();
+				console.log('full refresh')
+			} else {
+				const dirtyFolders: FolderElement[] = [];
+				for (const folderPath of this.loadedFolderElements.keys()) {
+					const insideTreeRoot = folderPath.startsWith(this.treeRoot);
+					const files = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+					if (!files.has(folderPath)) {
+						// folder was removed; dirty state will be handled by parent folder
+						this.loadedFolderElements.delete(folderPath);
+					} else if (hasChanged(folderPath, insideTreeRoot)) {
+						dirtyFolders.push(this.loadedFolderElements.get(folderPath)!);
+					}
+				}
+
+				// TODO merge all subfolder changes with parent changes to determine minimal set of change events
+				//  -> take into account the split between inside/outside of workspace root
+				// TODO clean up loadedFolderElements
+				const minDirtyFolders = dirtyFolders;
+
+
+				for (const dirtyFolder of minDirtyFolders) {
+					this._onDidChangeTreeData.fire(dirtyFolder);
+					console.log('refresh for: ' + dirtyFolder.absPath)
+				}
+			}
+		}
+
 		this.filesInsideTreeRoot = filesInsideTreeRoot;
 		this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 	}
@@ -232,13 +285,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 			}
 		}
 		try {
-			await this.initDiff();
+			await this.updateDiff(true);
 		} catch (e) {
 			// some error occured, ignore and try again next time
 			console.log('Ignoring initDiff() error during handleWorkspaceChange()', e);
 			return;
 		}
-		this._onDidChangeTreeData.fire();
 	}
 
 	private handleConfigChange() {
@@ -256,14 +308,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 	}
 
-	private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot?: boolean, collapsed?: boolean): FileSystemElement[] {
+	private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot: boolean): FileSystemElement[] {
 		const entries: FileSystemElement[] = [];
 		const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
 
 		// add direct subfolders
 		for (const folder2 of files.keys()) {
-			if (path.dirname(folder2) == folder) {
-				entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot, collapsed));
+			if (path.dirname(folder2) === folder) {
+				entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
 			}
 		}
 
@@ -285,10 +337,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const left = toGitUri(right, this.mergeBase);
 		const status = fileEntry.status;
 
-		if (status == 'U' || status == 'A') {
+		if (status === 'U' || status === 'A') {
 			return commands.executeCommand('vscode.open', right);
 		}
-		if (status == 'D') {
+		if (status === 'D') {
 			return commands.executeCommand('vscode.open', left);
 		}
 
@@ -304,7 +356,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		const right = Uri.file(fileEntry.absPath);
 		const left = toGitUri(right, this.mergeBase);
 		const status = fileEntry.status;
-		const uri = status == 'D' ? left : right;
+		const uri = status === 'D' ? left : right;
 		return commands.executeCommand('vscode.open', uri);
 	}
 
@@ -320,7 +372,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 		}
 
 		const baseRef = choice.ref.name!;
-		if (this.baseRef == baseRef) {
+		if (this.baseRef === baseRef) {
 			return;
 		}
 		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {
@@ -331,13 +383,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 				return;
 			}
 			try {
-				await this.initDiff();
+				await this.updateDiff(false);
 			} catch (e) {
 				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
 				// clear the tree as it would be confusing to display the old tree under the new base
 				this.filesInsideTreeRoot = new Map();
 				this.filesOutsideTreeRoot = new Map();
 			}
+			// manual cleaning necessary as the whole tree is updated
+			this.loadedFolderElements.clear();
 			this._onDidChangeTreeData.fire();
 		});
 	}
@@ -345,8 +399,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 	async manualRefresh() {
 		window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async p => {
 			try {
-				await this.initDiff();
-				this._onDidChangeTreeData.fire();
+				await this.updateDiff(true);
 			} catch (e) {
 				window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
 			}
@@ -372,15 +425,15 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
 			title: ''
 		};
 		return item;
+	} else if (element instanceof RepoRootElement) {
+		const label = '/';
+		const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
+		item.contextValue = 'root';
+		return item;
 	} else if (element instanceof FolderElement) {
 		const label = path.basename(element.absPath);
 		const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
 		item.contextValue = 'folder';
-		return item;
-	} else if (element instanceof RootElement) {
-		const label = '/';
-		const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
-		item.contextValue = 'root';
 		return item;
 	} else if (element instanceof RefElement) {
 		const label = element.refName;
@@ -404,4 +457,16 @@ function toIconName(element: FileElement) {
 		case 'M': return 'status-modified';
 		case 'C': return 'status-conflict';
 	}
+}
+
+function sortedArraysEqual<T> (a: T[], b: T[]): boolean {
+	if (a.length != b.length) {
+		return false;
+	}
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) {
+			return false;
+		}
+	}
+	return true;
 }
