@@ -1,19 +1,19 @@
 {
-	"compilerOptions": {
-		"module": "commonjs",
-		"target": "es6",
-		"outDir": "out",
-		"lib": [
-			"es6"
-		],
-		"sourceMap": true,
-		"rootDir": ".",
-		"alwaysStrict": true,
-		"strictNullChecks": true,
-		"forceConsistentCasingInFileNames": true,
-		"experimentalDecorators": true
-	},
-	"include": [
-		"src/**/*"
-	]
+    "compilerOptions": {
+        "module": "commonjs",
+        "target": "es6",
+        "outDir": "out",
+        "lib": [
+            "es6"
+        ],
+        "sourceMap": true,
+        "rootDir": ".",
+        "alwaysStrict": true,
+        "strictNullChecks": true,
+        "forceConsistentCasingInFileNames": true,
+        "experimentalDecorators": true
+    },
+    "include": [
+        "src/**/*"
+    ]
 }
