@@ -6,6 +6,8 @@ It is perfect for keeping an eye on what your pull request will look like, a **p
 
 In bigger projects with many files it also provides **context**, it gives you a quick way to figure out which of those files you have been working on in your feature branch. This comes in handy when you work on several branches in parallel, or simply when you forgot where you left off the following day.
 
+<img src="screenshots/main.png" width="230" alt="Screenshot of Git Tree Compare view">
+
 ## Features
 
 - Working tree comparison against any branch or tag
