@@ -1,21 +1,21 @@
 {
-	"name": "git-tree-compare",
-	"displayName": "Git Tree Compare",
-	"description": "Compare your worktree against a base branch or tag, displayed as tree",
-	"version": "0.1.0",
-	"author": {
-		"name": "Maik Riechert",
-		"url": "https://github.com/letmaik"
-	},
-	"publisher": "letmaik",
-	"license": "SEE LICENSE FILE",
-	"icon": "resources/logo.png",
-	"categories": [
-		"Other"
-	],
-	"keywords": [
-		"git", "diff", "tree", "compare", "branch"
-	],
+    "name": "git-tree-compare",
+    "displayName": "Git Tree Compare",
+    "description": "Compare your worktree against a branch or tag in a tree -- especially useful for pull request preparation",
+    "version": "1.0.0",
+    "author": {
+        "name": "Maik Riechert",
+        "url": "https://github.com/letmaik"
+    },
+    "publisher": "letmaik",
+    "license": "MIT",
+    "icon": "resources/logo.png",
+    "categories": [
+        "Other"
+    ],
+    "keywords": [
+        "git", "diff", "tree", "compare", "branch"
+    ],
     "bugs": {
         "url": "https://github.com/letmaik/vscode-git-tree-compare/issues"
     },
@@ -24,117 +24,117 @@
         "url": "https://github.com/letmaik/vscode-git-tree-compare.git"
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
-	"engines": {
-		"vscode": "^1.13.0"
-	},
-	"activationEvents": [
-		"onView:gitTreeCompare"
-	],
-	"main": "./out/src/extension",
-	"contributes": {
-		"views": {
-			"explorer": [
-				{
-					"id": "gitTreeCompare",
-					"name": "Git Tree Compare",
-					"when": "scmProvider == git && config.git.enabled && gitState != norepo"
-				}
-			]
-		},
-		"commands": [
-			{
-				"command": "gitTreeCompare.openChanges",
-				"title": "Open Changes",
-				"category": "Git Tree Compare"
-			},
-			{
-				"command": "gitTreeCompare.openFile",
-				"title": "Open File",
-				"category": "Git Tree Compare"
-			},
-			{
-				"command": "gitTreeCompare.changeBase",
-				"title": "Change Base...",
-				"category": "Git Tree Compare"
-			},
-			{
-				"command": "gitTreeCompare.refresh",
-				"title": "Refresh",
-				"category": "Git Tree Compare"
-			}
-		],
-		"menus": {
-			"view/title": [
-				{
-					"command": "gitTreeCompare.changeBase",
-					"when": "view == gitTreeCompare"
-				},
-				{
-					"command": "gitTreeCompare.refresh",
-					"when": "view == gitTreeCompare"
-				}
-			],
-			"view/item/context": [
-				{
-					"command": "gitTreeCompare.openChanges",
-					"when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
-				},
-				{
-					"command": "gitTreeCompare.openFile",
-					"when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges"
-				},
-				{
-					"command": "gitTreeCompare.changeBase",
-					"when": "view == gitTreeCompare && viewItem == ref"
-				},
-				{
-					"command": "gitTreeCompare.refresh",
-					"when": "view == gitTreeCompare && viewItem == ref"
-				}
-			]
-		},
-		"configuration": {
-			"title": "Git Tree Compare",
-			"properties": {
-				"gitTreeCompare.autoRefresh": {
-					"type": "boolean",
-					"description": "Whether to refresh the tree whenever a file in the workspace changes.",
-					"default": true
-				},
-				"gitTreeCompare.openChanges": {
-					"type": "boolean",
-					"description": "When selecting a modified file in the tree, whether to show its changes or just open the workspace file.",
-					"default": true
-				},
-				"gitTreeCompare.root": {
-					"type": "string",
-					"enum": [
-						"workspace",
-						"repository"
-					],
-					"description": "The root of the tree when the workspace folder is not the same as the repository root.",
-					"default": "workspace"
-				},
-				"gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
-					"type": "boolean",
-					"description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
-					"default": true
-				}
-			}
-		}
-	},
-	"scripts": {
-		"vscode:prepublish": "tsc -p ./",
-		"compile": "tsc -watch -p ./",
-		"postinstall": "node ./node_modules/vscode/bin/install"
-	},
-	"devDependencies": {
-		"typescript": "^2.3.4",
-		"vscode": "^1.1.0",
-		"@types/node": "*"
-	},
-	"dependencies": {
-		"iconv-lite": "^0.4.15",
-		"vscode-nls": "^2.0.1"
-	}
+    "engines": {
+        "vscode": "^1.13.0"
+    },
+    "activationEvents": [
+        "onView:gitTreeCompare"
+    ],
+    "main": "./out/src/extension",
+    "contributes": {
+        "views": {
+            "explorer": [
+                {
+                    "id": "gitTreeCompare",
+                    "name": "Git Tree Compare",
+                    "when": "scmProvider == git && config.git.enabled && gitState != norepo"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "gitTreeCompare.openChanges",
+                "title": "Open Changes",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.openFile",
+                "title": "Open File",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.changeBase",
+                "title": "Change Base...",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.refresh",
+                "title": "Refresh",
+                "category": "Git Tree Compare"
+            }
+        ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare"
+                },
+                {
+                    "command": "gitTreeCompare.refresh",
+                    "when": "view == gitTreeCompare"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "gitTreeCompare.openChanges",
+                    "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
+                },
+                {
+                    "command": "gitTreeCompare.openFile",
+                    "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges"
+                },
+                {
+                    "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.refresh",
+                    "when": "view == gitTreeCompare && viewItem == ref"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Git Tree Compare",
+            "properties": {
+                "gitTreeCompare.autoRefresh": {
+                    "type": "boolean",
+                    "description": "Whether to refresh the tree whenever a file in the workspace changes.",
+                    "default": true
+                },
+                "gitTreeCompare.openChanges": {
+                    "type": "boolean",
+                    "description": "When selecting a modified file in the tree, whether to show its changes or just open the workspace file.",
+                    "default": true
+                },
+                "gitTreeCompare.root": {
+                    "type": "string",
+                    "enum": [
+                        "workspace",
+                        "repository"
+                    ],
+                    "description": "The root of the tree when the workspace folder is not the same as the repository root.",
+                    "default": "workspace"
+                },
+                "gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
+                    "type": "boolean",
+                    "description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
+                    "default": true
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "tsc -p ./",
+        "compile": "tsc -watch -p ./",
+        "postinstall": "node ./node_modules/vscode/bin/install"
+    },
+    "devDependencies": {
+        "typescript": "^2.3.4",
+        "vscode": "^1.1.0",
+        "@types/node": "^7.0.4"
+    },
+    "dependencies": {
+        "iconv-lite": "^0.4.15",
+        "vscode-nls": "^2.0.1"
+    }
 }
