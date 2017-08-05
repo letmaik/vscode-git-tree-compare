@@ -446,6 +446,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async manualRefresh() {
         window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async p => {
+            if (await this.isHeadChanged()) {
+                // make sure merge base is updated when switching branches
+                try {
+                    await this.updateRefs(this.baseRef);
+                } catch (e) {
+                    console.log(e);
+                    window.showErrorMessage('Updating the git tree failed: ' + (<Error>e).message);
+                    return;
+                }
+            }
+
             try {
                 await this.updateDiff(true);
             } catch (e) {
