@@ -143,9 +143,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         try {
             this.headLastChecked = new Date();
             const HEAD = await this.repository.getHEAD();
-            if (!HEAD.name) {
-                return;
-            }
             if (!baseRef) {
                 // TODO check that the ref still exists and ignore otherwise
                 baseRef = this.getStoredBaseRef();
@@ -154,13 +151,31 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 baseRef = await getDefaultBranch(this.repository, HEAD);
             }
             if (!baseRef) {
-                baseRef = HEAD.name;
+                if (HEAD.name) {
+                    baseRef = HEAD.name;
+                } else {
+                    // detached HEAD and no default branch was found
+                    // pick an arbitrary ref as base, give preference to common refs
+                    const refs = await this.repository.getRefs();
+                    const commonRefs = ['origin/master', 'master'];
+                    const match = refs.find(ref => ref.name !== undefined && commonRefs.indexOf(ref.name) !== -1);
+                    if (match) {
+                        baseRef = match.name;
+                    } else if (refs.length > 0) {
+                        baseRef = refs[0].name;
+                    }
+                }
             }
+            if (!baseRef) {
+                // this should never happen
+                throw new Error('Base ref could not be determined!');
+            }
+            const HEADref: string = (HEAD.name || HEAD.commit)!;
             let mergeBase = baseRef;
             if (baseRef != HEAD.name) {
                 // determine merge base to create more sensible/compact diff
                 try {
-                    mergeBase = await getMergeBase(this.repository, HEAD.name, baseRef);
+                    mergeBase = await getMergeBase(this.repository, HEADref, baseRef);
                 } catch (e) {
                     // sometimes the merge base cannot be determined
                     // this can be the case with shallow clones but may have other reasons
@@ -292,6 +307,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async isHeadChanged() {
+        // Note that we can't rely on filesystem change notifications for .git/HEAD
+        // because the workspace root may be a subfolder of the repo root
+        // and change notifications are currently limited to workspace scope.
+        // See https://github.com/Microsoft/vscode/issues/3025.
         const mtime = await getHeadModificationDate(this.repository);
         return mtime > this.headLastChecked;
     }

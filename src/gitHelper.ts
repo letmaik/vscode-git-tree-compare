@@ -27,22 +27,27 @@ export async function createGit(): Promise<Git> {
 }
 
 export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
-    if (!head.name) {
-        return;
+    // determine which remote HEAD is tracking
+    let remote: string
+    if (head.name) {
+        let headBranch: Branch;
+        try {
+            headBranch = await repo.getBranch(head.name);
+        } catch (e) {
+            // this can happen on a newly initialized repo without commits
+            return;
+        }
+        if (!headBranch.upstream) {
+            return;
+        }
+        remote = headBranch.upstream.split('/')[0];
+    } else {
+        // detached HEAD, fall-back and try 'origin'
+        remote = 'origin';
     }
-    let headBranch: Branch;
-    try {
-        headBranch = await repo.getBranch(head.name);
-    } catch (e) {
-        // this can happen on a newly initialized repo without commits
-        return;
-    }
-    if (!headBranch.upstream) {
-        return;
-    }
-    const refs = await repo.getRefs();
-    const remote = headBranch.upstream.split('/')[0]
+    // determine default branch for the remote
     const remoteHead = remote + "/HEAD";
+    const refs = await repo.getRefs();
     if (refs.find(ref => ref.name == remoteHead) === undefined) {
         return;
     }
