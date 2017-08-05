@@ -10,7 +10,7 @@ import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
 import { anyEvent, filterEvent } from './git/util'
 import { toGitUri } from './git/uri'
-import { getDefaultBranch, getMergeBase, getHeadModificationDate,
+import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 
@@ -61,6 +61,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private readonly loadedFolderElements: Map<string, FolderElement> = new Map();
 
     private headLastChecked: Date;
+    private headName: string | undefined;
+    private headCommit: string;
     private baseRef: string;
     private mergeBase: string;
 
@@ -143,6 +145,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         try {
             this.headLastChecked = new Date();
             const HEAD = await this.repository.getHEAD();
+            // if detached HEAD, then .commit exists, otherwise only .name
+            this.headName = HEAD.name;
+            this.headCommit = HEAD.commit || await getBranchCommit(this.repository, HEAD.name!);
             if (!baseRef) {
                 // TODO check that the ref still exists and ignore otherwise
                 baseRef = this.getStoredBaseRef();
@@ -312,7 +317,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // and change notifications are currently limited to workspace scope.
         // See https://github.com/Microsoft/vscode/issues/3025.
         const mtime = await getHeadModificationDate(this.repository);
-        return mtime > this.headLastChecked;
+        if (mtime > this.headLastChecked) {
+            return true;
+        }
+        // At this point we know that HEAD still points to the same symbolic ref or commit (if detached).
+        // If HEAD is not detached, check if the symbolic ref resolves to a different commit.
+        if (this.headName) {
+            // this.repository.getBranch() is not used here to avoid git invocation overhead
+            const headCommit = await getBranchCommit(this.repository, this.headName);
+            if (this.headCommit !== headCommit) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @debounce(2000)

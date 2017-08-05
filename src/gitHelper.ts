@@ -65,6 +65,17 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
     return remoteHeadBranch;
 }
 
+export async function getBranchCommit(repo: Repository, branchName: string): Promise<string> {
+    // a cheaper alternative to repo.getBranch()
+    const refPath = path.join(repo.root, '.git', 'refs', 'heads', branchName);
+    const refExists = exists(refPath);
+    if (!refExists) {
+        throw new Error(`Branch ${branchName} not found`);
+    }
+    const commit = (await readFile(refPath, 'utf8')).trim();
+    return commit;
+}
+
 export async function getMergeBase(repo: Repository, headRef: string, baseRef: string): Promise<string> {
     const result = await repo.run(['merge-base', baseRef, headRef]);
     const mergeBase = result.stdout.trim();
