@@ -1,3 +1,10 @@
+## 1.1.1
+
+* Fixed extension activation not working on VS Code 1.16.0.
+Note that this is a temporary work-around which now always enables the extension, even if the workspace has no git repository (previously the extension would be disabled then). The work-around is necessary due to a [breaking change in VS Code](https://github.com/Microsoft/vscode/issues/33618) and makes sure that the extension keeps working for users with versions older than 1.16.0 as well as for newer versions.
+Once VS Code 1.16.0 is rolled out to all users the final fix will be applied and the original behaviour can be restored. 
+For details see [#23](https://github.com/letmaik/vscode-git-tree-compare/issues/23).
+
 ## 1.1.0
 
 * Added support for detached HEAD, for example when checking out a tag, a remote branch, or a specific commit
