@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch or tag in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -25,7 +25,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.13.0"
+        "vscode": "^1.16.0"
     },
     "activationEvents": [
         "onView:gitTreeCompare"
@@ -37,7 +37,7 @@
                 {
                     "id": "gitTreeCompare",
                     "name": "Git Tree Compare",
-                    "when": "config.git.enabled"
+                    "when": "config.git.enabled && gitOpenRepositoryCount != 0"
                 }
             ]
         },

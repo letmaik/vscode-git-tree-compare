@@ -1,3 +1,7 @@
+## 1.1.2
+
+* Restore original extension activation behaviour (only enable if a git repo is in the workspace)
+
 ## 1.1.1
 
 * Fixed extension activation not working on VS Code 1.16.0.
