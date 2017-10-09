@@ -95,6 +95,7 @@ export interface IDiffStatus {
      * M Modification of file contents
      * C File has merge conflicts
      * U Untracked file
+     * T Type change (regular/symlink etc.)
      */
     status: StatusCode
 
@@ -110,13 +111,13 @@ class DiffStatus implements IDiffStatus {
     }
 }
 
-export type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U'
+export type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U' | 'T'
 
 function sanitizeStatus(status: string): StatusCode {
     if (status == 'U') {
         return 'C';
     }
-    if (status.length != 1 || 'ADM'.indexOf(status) == -1) {
+    if (status.length != 1 || 'ADMT'.indexOf(status) == -1) {
         throw new Error('unsupported git status: ' + status);
     }
     return status as StatusCode;

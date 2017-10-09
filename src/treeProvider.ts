@@ -526,6 +526,7 @@ function toIconName(element: FileElement) {
         case 'D': return 'status-deleted';
         case 'M': return 'status-modified';
         case 'C': return 'status-conflict';
+        case 'T': return 'status-typechange';
     }
 }
 
