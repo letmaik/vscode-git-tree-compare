@@ -1,5 +1,6 @@
 ## 1.1.3
 
+* Added support for type change (T) git status
 * Fixed extension not working when using `git worktree` [#28](https://github.com/letmaik/vscode-git-tree-compare/issues/28)
 
 ## 1.1.2
