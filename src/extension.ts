@@ -2,7 +2,7 @@ import { ExtensionContext, workspace, window, Disposable, commands } from 'vscod
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider } from './treeProvider';
-import { createGit, getDefaultBranch } from './gitHelper';
+import { createGit, getDefaultBranch, getAbsGitDir, getAbsGitCommonDir } from './gitHelper';
 import { RefType } from './git/git'
 import { toDisposable } from './git/util';
 
@@ -25,7 +25,9 @@ export function activate(context: ExtensionContext) {
 
         const repositoryRoot = await git.getRepositoryRoot(rootPath);
         const repository = git.open(repositoryRoot);
-        const provider = new GitTreeCompareProvider(repository, context.workspaceState);
+        const absGitDir = await getAbsGitDir(repository);
+        const absGitCommonDir = await getAbsGitCommonDir(repository);
+        const provider = new GitTreeCompareProvider(repository, absGitDir, absGitCommonDir, context.workspaceState);
         window.registerTreeDataProvider(NAMESPACE, provider);
 
         commands.registerCommand(NAMESPACE + '.openChanges', node => {

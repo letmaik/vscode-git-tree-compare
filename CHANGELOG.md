@@ -1,3 +1,7 @@
+## 1.1.3
+
+* Fixed extension not working when using `git worktree` [#28](https://github.com/letmaik/vscode-git-tree-compare/issues/28)
+
 ## 1.1.2
 
 * Restore original extension activation behaviour (only enable if a git repo is in the workspace)

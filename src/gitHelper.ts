@@ -26,7 +26,21 @@ export async function createGit(): Promise<Git> {
     return new Git({ gitPath: info.path, version: info.version, env });
 }
 
-export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
+export async function getAbsGitDir(repo: Repository): Promise<string> {
+    let res = await repo.run(['rev-parse', '--absolute-git-dir']);
+    return res.stdout.trim();
+}
+
+export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
+    let res = await repo.run(['rev-parse', '--git-common-dir']);
+    let dir = res.stdout.trim();
+    if (!path.isAbsolute(dir)) {
+        dir = path.join(repo.root, dir);
+    }
+    return dir;
+}
+
+export async function getDefaultBranch(repo: Repository, absGitCommonDir: string, head: Ref): Promise<string | undefined> {
     // determine which remote HEAD is tracking
     let remote: string
     if (head.name) {
@@ -55,7 +69,7 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
     // however, the branch name is in the file .git/refs/remotes/$remote/HEAD
     // the file format is:
     // ref: refs/remotes/origin/master
-    const symRefPath = path.join(repo.root, '.git', 'refs', 'remotes', remote, 'HEAD');
+    const symRefPath = path.join(absGitCommonDir, 'refs', 'remotes', remote, 'HEAD');
     const symRefExists = exists(symRefPath);
     if (!symRefExists) {
         return;
@@ -65,9 +79,9 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
     return remoteHeadBranch;
 }
 
-export async function getBranchCommit(repo: Repository, branchName: string): Promise<string> {
+export async function getBranchCommit(absGitCommonDir: string, branchName: string): Promise<string> {
     // a cheaper alternative to repo.getBranch()
-    const refPath = path.join(repo.root, '.git', 'refs', 'heads', branchName);
+    const refPath = path.join(absGitCommonDir, 'refs', 'heads', branchName);
     const refExists = exists(refPath);
     if (!refExists) {
         throw new Error(`Branch ${branchName} not found`);
@@ -82,8 +96,8 @@ export async function getMergeBase(repo: Repository, headRef: string, baseRef: s
     return mergeBase;
 }
 
-export async function getHeadModificationDate(repo: Repository): Promise<Date> {
-    const headPath = path.join(repo.root, '.git', 'HEAD');
+export async function getHeadModificationDate(absGitDir: string,): Promise<Date> {
+    const headPath = path.join(absGitDir, 'HEAD');
     const stats = await stat(headPath);
     return stats.mtime;
 }
