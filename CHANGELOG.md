@@ -1,3 +1,8 @@
+## 1.1.4
+
+* Fixed extension only working on git >= 2.13, now works on older version again.
+  This was caused by changes in the 1.1.3 extension release.
+
 ## 1.1.3
 
 * Added support for type change (T) git status

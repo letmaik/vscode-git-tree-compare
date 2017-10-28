@@ -27,8 +27,13 @@ export async function createGit(): Promise<Git> {
 }
 
 export async function getAbsGitDir(repo: Repository): Promise<string> {
-    let res = await repo.run(['rev-parse', '--absolute-git-dir']);
-    return res.stdout.trim();
+    // We don't use --absolute-git-dir here as that requires git >= 2.13.
+    let res = await repo.run(['rev-parse', '--git-dir']);
+    let dir = res.stdout.trim();
+    if (!path.isAbsolute(dir)) {
+        dir = path.join(repo.root, dir);
+    }
+    return dir;
 }
 
 export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
