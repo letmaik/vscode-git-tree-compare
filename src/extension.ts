@@ -18,7 +18,7 @@ export function activate(context: ExtensionContext) {
     const outputChannel = window.createOutputChannel('Git Tree Compare');
     disposables.push(outputChannel);
 
-    createGit().then(async git => {
+    createGit(outputChannel).then(async git => {
         const onOutput = str => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));

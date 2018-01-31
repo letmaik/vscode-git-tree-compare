@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 
-import { ExtensionContext, workspace, window, Disposable, commands, Uri } from 'vscode';
+import { ExtensionContext, workspace, window, Disposable, commands, Uri, OutputChannel } from 'vscode';
 import { findGit, Git, Repository, Ref, Branch, IExecutionResult } from './git/git';
 import { Askpass } from './git/askpass';
 import { toDisposable, denodeify } from './git/util';
@@ -14,13 +14,13 @@ export function denodeify2<R>(fn: Function): (...args) => Promise<R> {
 }
 const exists = denodeify2<boolean>(fs.exists);
 
-export async function createGit(): Promise<Git> {
+export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     const config = workspace.getConfiguration('git');
     const enabled = config.get<boolean>('enabled') === true;
     const workspaceRootPath = workspace.rootPath;
 
     const pathHint = workspace.getConfiguration('git').get<string>('path');
-    const info = await findGit(pathHint);
+    const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
     const askpass = new Askpass();
     const env = await askpass.getEnv();
     return new Git({ gitPath: info.path, version: info.version, env });

@@ -14,7 +14,11 @@
         "Other"
     ],
     "keywords": [
-        "git", "diff", "tree", "compare", "branch"
+        "git",
+        "diff",
+        "tree",
+        "compare",
+        "branch"
     ],
     "bugs": {
         "url": "https://github.com/letmaik/vscode-git-tree-compare/issues"
@@ -134,7 +138,10 @@
         "@types/node": "^7.0.4"
     },
     "dependencies": {
-        "iconv-lite": "^0.4.15",
-        "vscode-nls": "^2.0.1"
+        "byline": "^5.0.0",
+        "file-type": "^7.2.0",
+        "iconv-lite": "0.4.19",
+        "vscode-nls": "^3.2.1",
+        "which": "^1.3.0"
     }
 }
