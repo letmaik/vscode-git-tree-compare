@@ -8,7 +8,7 @@ import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          workspace, commands, window } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Ref, RefType } from './git/git'
-import { anyEvent, filterEvent } from './git/util'
+import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { toGitUri } from './git/uri'
 import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode } from './gitHelper'
@@ -336,6 +336,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private async handleWorkspaceChange(path: Uri) {
         if (!this.autoRefresh) {
             return
+        }
+        if (!window.state.focused) {
+            const onDidFocusWindow = filterEvent(window.onDidChangeWindowState, e => e.focused);
+            await eventToPromise(onDidFocusWindow);
+            this.handleWorkspaceChange(path);
+            return;
         }
         if (await this.isHeadChanged()) {
             // make sure merge base is updated when switching branches
