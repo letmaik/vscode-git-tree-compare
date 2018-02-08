@@ -29,7 +29,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.16.0"
+        "vscode": "^1.20.0"
     },
     "activationEvents": [
         "onView:gitTreeCompare"
@@ -57,6 +57,16 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.openAllChanges",
+                "title": "Open All Changes",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.openChangedFiles",
+                "title": "Open Changed Files",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.changeBase",
                 "title": "Change Base...",
                 "category": "Git Tree Compare"
@@ -71,6 +81,14 @@
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare"
+                },
+                {
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
                     "when": "view == gitTreeCompare"
                 },
                 {
@@ -89,6 +107,14 @@
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
                     "when": "view == gitTreeCompare && viewItem == ref"
                 },
                 {
@@ -134,7 +160,7 @@
     },
     "devDependencies": {
         "typescript": "^2.3.4",
-        "vscode": "^1.1.0",
+        "vscode": "^1.1.10",
         "@types/node": "^7.0.4"
     },
     "dependencies": {

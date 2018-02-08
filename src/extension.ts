@@ -48,5 +48,11 @@ export function activate(context: ExtensionContext) {
         commands.registerCommand(NAMESPACE + '.refresh', () => {
             provider.manualRefresh();
         });
+        commands.registerCommand(NAMESPACE + '.openAllChanges', () => {
+            provider.openAllChanges();
+        });
+        commands.registerCommand(NAMESPACE + '.openChangedFiles', () => {
+            provider.openChangedFiles();
+        });
     })
 }

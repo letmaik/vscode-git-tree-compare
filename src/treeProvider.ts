@@ -44,6 +44,8 @@ class RefItem implements QuickPickItem {
     }
 }
 
+type FolderAbsPath = string;
+
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
     private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
@@ -52,13 +54,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private openChangesOnSelect: boolean;
     private autoRefresh: boolean;
 
-    private treeRoot: string;
-    private readonly repoRoot: string;
+    private treeRoot: FolderAbsPath;
+    private readonly repoRoot: FolderAbsPath;
 
-    private filesInsideTreeRoot: Map<string, IDiffStatus[]>;
-    private filesOutsideTreeRoot: Map<string, IDiffStatus[]>;
+    private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
+    private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private includeFilesOutsideWorkspaceRoot: boolean;
-    private readonly loadedFolderElements: Map<string, FolderElement> = new Map();
+    private readonly loadedFolderElements: Map<FolderAbsPath, FolderElement> = new Map();
 
     private headLastChecked: Date;
     private headName: string | undefined;
@@ -201,8 +203,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.updateRefs();
         }
 
-        const filesInsideTreeRoot = new Map<string, IDiffStatus[]>();
-        const filesOutsideTreeRoot = new Map<string, IDiffStatus[]>();
+        const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
+        const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
         let diff = await diffIndex(this.repository, this.mergeBase);
 
@@ -402,9 +404,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async openChanges(fileEntry: FileElement) {
-        const right = Uri.file(fileEntry.absPath);
+        await this.doOpenChanges(fileEntry.absPath, fileEntry.status);
+    }
+
+    async doOpenChanges(absPath: string, status: StatusCode, preview=true) {
+        const right = Uri.file(absPath);
         const left = toGitUri(right, this.mergeBase);
-        const status = fileEntry.status;
 
         if (status === 'U' || status === 'A') {
             return commands.executeCommand('vscode.open', right);
@@ -414,19 +419,50 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         const options: TextDocumentShowOptions = {
-            preview: true
+            preview: preview
         };
-        const filename = path.basename(fileEntry.absPath);
+        const filename = path.basename(absPath);
         await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
     }
 
+    openAllChanges() {
+        for (let file of this.iterFiles()) {
+            this.doOpenChanges(file.absPath, file.status, false);
+        }
+    }
+
     async openFile(fileEntry: FileElement) {
-        const right = Uri.file(fileEntry.absPath);
+        return this.doOpenFile(fileEntry.absPath, fileEntry.status);
+    }
+
+    async doOpenFile(absPath: string, status: StatusCode, preview=false) {
+        const right = Uri.file(absPath);
         const left = toGitUri(right, this.mergeBase);
-        const status = fileEntry.status;
         const uri = status === 'D' ? left : right;
-        return commands.executeCommand('vscode.open', uri);
+        const options: TextDocumentShowOptions = {
+            preview: preview
+        };
+        return commands.executeCommand('vscode.open', uri, options);
+    }
+
+    openChangedFiles() {
+        for (let file of this.iterFiles()) {
+            if (file.status == 'D') {
+                continue;
+            }
+            this.doOpenFile(file.absPath, file.status, false);
+        }
+    }
+
+    *iterFiles() {
+        for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
+            for (let files of this.filesInsideTreeRoot.values()) {
+                for (let file of files) {
+                    yield file;
+                }
+            }
+        }
     }
 
     async promptChangeBase() {
@@ -493,6 +529,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label);
         item.contextValue = 'file';
+        item.id = element.absPath;
         item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
         const command = openChangesOnSelect ? 'openChanges' : 'openFile';
         item.command = {
@@ -505,17 +542,20 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
         const label = '/';
         const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
         item.contextValue = 'root';
+        item.id = 'root'
         return item;
     } else if (element instanceof FolderElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
         item.contextValue = 'folder';
+        item.id = element.absPath;
         return item;
     } else if (element instanceof RefElement) {
         const label = element.refName;
         const state = element.hasChildren ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.None;
         const item = new TreeItem(label, state);
         item.contextValue = 'ref';
+        item.id = 'ref'
         item.iconPath = {
             light: path.join(iconRoot, 'light', 'git-compare.svg'),
             dark: path.join(iconRoot, 'dark', 'git-compare.svg')
