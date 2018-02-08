@@ -15,8 +15,6 @@ export function denodeify2<R>(fn: Function): (...args) => Promise<R> {
 const exists = denodeify2<boolean>(fs.exists);
 
 export async function createGit(outputChannel: OutputChannel): Promise<Git> {
-    const config = workspace.getConfiguration('git');
-    const enabled = config.get<boolean>('enabled') === true;
     const workspaceRootPath = workspace.rootPath;
 
     const pathHint = workspace.getConfiguration('git').get<string>('path');
@@ -142,7 +140,7 @@ function sanitizeStatus(status: string): StatusCode {
     return status as StatusCode;
 }
 
-export async function diffIndex(repo: Repository, ref: string) {
+export async function diffIndex(repo: Repository, ref: string): Promise<IDiffStatus[]> {
     // exceptions can happen with newly initialized repos without commits, or when git is busy
     let diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
     let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
