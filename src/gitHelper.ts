@@ -9,11 +9,6 @@ import { toDisposable, denodeify } from './git/util';
 const readFile = denodeify<string>(fs.readFile);
 const stat = denodeify<fs.Stats>(fs.stat);
 
-export function denodeify2<R>(fn: Function): (...args) => Promise<R> {
-    return (...args) => new Promise<R>(c => fn(...args, r => c(r)));
-}
-const exists = denodeify2<boolean>(fs.exists);
-
 export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     const workspaceRootPath = workspace.rootPath;
 
@@ -73,24 +68,42 @@ export async function getDefaultBranch(repo: Repository, absGitCommonDir: string
     // the file format is:
     // ref: refs/remotes/origin/master
     const symRefPath = path.join(absGitCommonDir, 'refs', 'remotes', remote, 'HEAD');
-    const symRefExists = exists(symRefPath);
-    if (!symRefExists) {
+    let symRef: string;
+    try {
+        symRef = await readFile(symRefPath, 'utf8');
+    } catch (e) {
         return;
     }
-    const symRef = await readFile(symRefPath, 'utf8');
     const remoteHeadBranch = symRef.trim().replace('ref: refs/remotes/', '');
     return remoteHeadBranch;
 }
 
 export async function getBranchCommit(absGitCommonDir: string, branchName: string): Promise<string> {
     // a cheaper alternative to repo.getBranch()
-    const refPath = path.join(absGitCommonDir, 'refs', 'heads', branchName);
-    const refExists = exists(refPath);
-    if (!refExists) {
-        throw new Error(`Branch ${branchName} not found`);
+    const refPathUnpacked = path.join(absGitCommonDir, 'refs', 'heads', branchName);
+    try {
+        const commit = (await readFile(refPathUnpacked, 'utf8')).trim();
+        return commit;
+    } catch (e) {
+        const refs = await readPackedRefs(absGitCommonDir);
+        const ref = `refs/heads/${branchName}`;
+        const commit = refs.get(ref);
+        if (commit === undefined) {
+            throw new Error(`Could not determine commit for "${branchName}"`);
+        }
+        return commit;
     }
-    const commit = (await readFile(refPath, 'utf8')).trim();
-    return commit;
+}
+
+async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,string>> {
+    // see https://git-scm.com/docs/git-pack-refs
+    const packedRefsPath = path.join(absGitCommonDir, 'packed-refs');
+    const content = await readFile(packedRefsPath, 'utf8');
+    const regex = /^([0-9a-f]+) (.+)$/;
+    return new Map(content.split('\n')
+        .map(line => regex.exec(line))
+        .filter(g => !!g)
+        .map((groups: RegExpExecArray) => [groups[2], groups[1]] as [string, string]));
 }
 
 export async function getMergeBase(repo: Repository, headRef: string, baseRef: string): Promise<string> {
@@ -99,7 +112,7 @@ export async function getMergeBase(repo: Repository, headRef: string, baseRef: s
     return mergeBase;
 }
 
-export async function getHeadModificationDate(absGitDir: string,): Promise<Date> {
+export async function getHeadModificationDate(absGitDir: string): Promise<Date> {
     const headPath = path.join(absGitDir, 'HEAD');
     const stats = await stat(headPath);
     return stats.mtime;
