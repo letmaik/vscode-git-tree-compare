@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch or tag in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.1.4",
+    "version": "1.2.0",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -149,6 +149,11 @@
                     "type": "boolean",
                     "description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
                     "default": true
+                },
+                "gitTreeCompare.iconsMinimal": {
+                    "type": "boolean",
+                    "description": "Whether to use a compact icon alignment (like Seti file icon theme) where only files have icons.",
+                    "default": false
                 }
             }
         }

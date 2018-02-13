@@ -53,6 +53,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private openChangesOnSelect: boolean;
     private autoRefresh: boolean;
+    private iconsMinimal: boolean;
 
     private treeRoot: FolderAbsPath;
     private readonly repoRoot: FolderAbsPath;
@@ -97,6 +98,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
+        this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
     }
 
     private getStoredBaseRef(): string | undefined {
@@ -108,7 +110,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     getTreeItem(element: Element): TreeItem {
-        return toTreeItem(element, this.openChangesOnSelect);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -369,10 +371,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldInclude = this.includeFilesOutsideWorkspaceRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
+        const oldIconsMinimal = this.iconsMinimal;
         this.readConfig();
         if (oldRoot != this.treeRoot ||
             oldInclude != this.includeFilesOutsideWorkspaceRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
+            oldIconsMinimal != this.iconsMinimal ||
             (!oldAutoRefresh && this.autoRefresh)) {
 
             this._onDidChangeTreeData.fire();
@@ -523,7 +527,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 }
 
-function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
+function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean): TreeItem {
     const iconRoot = path.join(__dirname, '..', '..', 'resources', 'icons');
     if (element instanceof FileElement) {
         const label = path.basename(element.absPath);
@@ -543,20 +547,24 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
         const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
         item.contextValue = 'root';
         item.id = 'root'
-        item.iconPath = {
-            light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
-            dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
-        };
+        if (!iconsMinimal) {
+            item.iconPath = {
+                light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
+                dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+            };
+        }
         return item;
     } else if (element instanceof FolderElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
         item.contextValue = 'folder';
         item.id = element.absPath;
-        item.iconPath = {
-            light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
-            dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
-        };
+        if (!iconsMinimal) {
+            item.iconPath = {
+                light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
+                dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+            };
+        }
         return item;
     } else if (element instanceof RefElement) {
         const label = element.refName;
@@ -564,10 +572,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
         const item = new TreeItem(label, state);
         item.contextValue = 'ref';
         item.id = 'ref'
-        item.iconPath = {
-            light: path.join(iconRoot, 'light', 'git-compare.svg'),
-            dark: path.join(iconRoot, 'dark', 'git-compare.svg')
-        };
+        if (!iconsMinimal) {
+            item.iconPath = {
+                light: path.join(iconRoot, 'light', 'git-compare.svg'),
+                dark: path.join(iconRoot, 'dark', 'git-compare.svg')
+            };
+        }
         return item;
     }
     throw new Error('unsupported element type');
