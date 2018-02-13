@@ -543,12 +543,20 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean): TreeItem {
         const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
         item.contextValue = 'root';
         item.id = 'root'
+        item.iconPath = {
+            light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
+            dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+        };
         return item;
     } else if (element instanceof FolderElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
         item.contextValue = 'folder';
         item.id = element.absPath;
+        item.iconPath = {
+            light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
+            dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+        };
         return item;
     } else if (element instanceof RefElement) {
         const label = element.refName;
