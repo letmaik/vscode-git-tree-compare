@@ -1,3 +1,11 @@
+## 1.2.0
+
+* Added commands to open all changed files / all changes [#29](https://github.com/letmaik/vscode-git-tree-compare/issues/29).
+* Added icon for folders which also avoids wrong node alignment [#17](https://github.com/letmaik/vscode-git-tree-compare/issues/17).
+* Added `iconsMinimal` config option which allows to switch to a compact icon layout, comparable to the Seti file icon theme.
+* Delay auto-refresh if VS Code is out of focus to minimize chances of disrupting a rebase operation or other git commands that need to acquire a lock to work [#24](https://github.com/letmaik/vscode-git-tree-compare/issues/24).
+* Fixed extension not working on bigger repositories where git switched to packed refs [#30](https://github.com/letmaik/vscode-git-tree-compare/issues/30).
+
 ## 1.1.4
 
 * Fixed extension only working on git >= 2.13, now works on older version again.
