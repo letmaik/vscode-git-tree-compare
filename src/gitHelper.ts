@@ -131,13 +131,22 @@ export interface IDiffStatus {
 
     /** absolute path to file on disk */
     absPath: string
+
+    /** True if this was or is a submodule */
+    isSubmodule: boolean
 }
+
+const MODE_REGULAR_FILE = '100644';
+const MODE_EMPTY = '000000';
+const MODE_SUBMODULE = '160000';
 
 class DiffStatus implements IDiffStatus {
     readonly absPath: string;
+    readonly isSubmodule: boolean;
 
-    constructor(repo: Repository, public status: StatusCode, relPath: string) {
+    constructor(repo: Repository, public status: StatusCode, relPath: string, srcMode: string, dstMode: string) {
         this.absPath = path.join(repo.root, relPath);
+        this.isSubmodule = srcMode == MODE_SUBMODULE || dstMode == MODE_SUBMODULE;
     }
 }
 
@@ -153,20 +162,33 @@ function sanitizeStatus(status: string): StatusCode {
     return status as StatusCode;
 }
 
+// https://git-scm.com/docs/git-diff-index#_raw_output_format
+const MODE_LEN = 6;
+const SHA1_LEN = 40;
+const SRC_MODE_OFFSET = 1;
+const DST_MODE_OFFSET = 2 + MODE_LEN;
+const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
+const PATH_OFFSET = STATUS_OFFSET + 2;
+
 export async function diffIndex(repo: Repository, ref: string): Promise<IDiffStatus[]> {
     // exceptions can happen with newly initialized repos without commits, or when git is busy
-    let diffIndexResult = await repo.run(['diff-index',  '--no-renames', '--name-status', ref, '--']);
+    let diffIndexResult = await repo.run(['diff-index', '--no-renames', ref, '--']);
     let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
 
     const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
         .filter(line => !!line)
         .map(line =>
-            new DiffStatus(repo, sanitizeStatus(line[0]), line.substr(1).trim())
+            new DiffStatus(repo,
+                sanitizeStatus(line[STATUS_OFFSET]),
+                line.substr(PATH_OFFSET).trim(),
+                line.substr(SRC_MODE_OFFSET, MODE_LEN),
+                line.substr(DST_MODE_OFFSET, MODE_LEN)
+            )
         );
 
     const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
         .filter(line => !!line)
-        .map(line => new DiffStatus(repo, 'U' as 'U', line));
+        .map(line => new DiffStatus(repo, 'U' as 'U', line, MODE_EMPTY, MODE_REGULAR_FILE));
 
     const statuses = diffIndexStatuses.concat(untrackedStatuses);
     statuses.sort((s1, s2) => s1.absPath.localeCompare(s2.absPath))

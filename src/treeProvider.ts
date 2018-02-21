@@ -15,7 +15,7 @@ import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommi
 import { debounce, throttle } from './git/decorators'
 
 class FileElement implements IDiffStatus {
-    constructor(public absPath: string, public status: StatusCode) {}
+    constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
 }
 
 class FolderElement {
@@ -400,7 +400,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                entries.push(new FileElement(file.absPath, file.status));
+                entries.push(new FileElement(file.absPath, file.status, file.isSubmodule));
             }
         }
 
@@ -463,7 +463,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
             for (let files of this.filesInsideTreeRoot.values()) {
                 for (let file of files) {
-                    yield file;
+                    if (!file.isSubmodule) {
+                        yield file;
+                    }
                 }
             }
         }
@@ -532,15 +534,17 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     if (element instanceof FileElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label);
-        item.contextValue = 'file';
+        item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.absPath;
         item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
-        const command = openChangesOnSelect ? 'openChanges' : 'openFile';
-        item.command = {
-            command: NAMESPACE + '.' + command,
-            arguments: [element],
-            title: ''
-        };
+        if (!element.isSubmodule) {
+            const command = openChangesOnSelect ? 'openChanges' : 'openFile';
+            item.command = {
+                command: NAMESPACE + '.' + command,
+                arguments: [element],
+                title: ''
+            };
+        }
         return item;
     } else if (element instanceof RepoRootElement) {
         const label = '/';
