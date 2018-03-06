@@ -1,3 +1,9 @@
+## 1.2.1
+
+* Separated heads, tags, remote heads in base selector.
+* Disabled "Open File" / "Open Changes" for submodule changes [#33](https://github.com/letmaik/vscode-git-tree-compare/issues/33).
+* Added more logging to better diagnose issues.
+
 ## 1.2.0
 
 * Added commands to open all changed files / all changes [#29](https://github.com/letmaik/vscode-git-tree-compare/issues/29).
