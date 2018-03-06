@@ -27,7 +27,7 @@ export function activate(context: ExtensionContext) {
         const repository = git.open(repositoryRoot);
         const absGitDir = await getAbsGitDir(repository);
         const absGitCommonDir = await getAbsGitCommonDir(repository);
-        const provider = new GitTreeCompareProvider(repository, absGitDir, absGitCommonDir, context.workspaceState);
+        const provider = new GitTreeCompareProvider(outputChannel, repository, absGitDir, absGitCommonDir, context.workspaceState);
         window.registerTreeDataProvider(NAMESPACE, provider);
 
         commands.registerCommand(NAMESPACE + '.openChanges', node => {

@@ -14,6 +14,7 @@ export async function createGit(outputChannel: OutputChannel): Promise<Git> {
 
     const pathHint = workspace.getConfiguration('git').get<string>('path');
     const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
+    outputChannel.appendLine(`Using git ${info.version} from ${info.path}`);
     const askpass = new Askpass();
     const env = await askpass.getEnv();
     return new Git({ gitPath: info.path, version: info.version, env });
@@ -52,7 +53,7 @@ export async function getDefaultBranch(repo: Repository, absGitCommonDir: string
         if (!headBranch.upstream) {
             return;
         }
-        remote = headBranch.upstream.split('/')[0];
+        remote = headBranch.upstream.remote;
     } else {
         // detached HEAD, fall-back and try 'origin'
         remote = 'origin';
