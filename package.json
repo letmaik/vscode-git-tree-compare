@@ -37,7 +37,7 @@
     "main": "./out/src/extension",
     "contributes": {
         "views": {
-            "explorer": [
+            "scm": [
                 {
                     "id": "gitTreeCompare",
                     "name": "Git Tree Compare",
