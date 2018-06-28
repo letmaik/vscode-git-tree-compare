@@ -190,8 +190,15 @@ export async function diffIndex(repo: Repository, ref: string): Promise<IDiffSta
     const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
         .filter(line => !!line)
         .map(line => new DiffStatus(repo, 'U' as 'U', line, MODE_EMPTY, MODE_REGULAR_FILE));
+    
+    const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.absPath))
 
-    const statuses = diffIndexStatuses.concat(untrackedStatuses);
+    // If a file was removed (D in diff-index) but was then re-introduced and not committed yet,
+    // then that file also appears as untracked (in ls-files). We need to decide which status to keep.
+    // Since the untracked status is newer it gets precedence.
+    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.absPath));
+        
+    const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
     statuses.sort((s1, s2) => s1.absPath.localeCompare(s2.absPath))
     return statuses;
 }
