@@ -1,3 +1,8 @@
+## 1.3.0
+
+* Moved tree view into source control container [#39](https://github.com/letmaik/vscode-git-tree-compare/issues/39)
+* Fixed files not appearing if a file was removed and reintroduced without being committed yet [#41](https://github.com/letmaik/vscode-git-tree-compare/issues/41)
+
 ## 1.2.1
 
 * Separated heads, tags, remote heads in base selector.
