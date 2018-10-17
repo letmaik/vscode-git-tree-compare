@@ -1,9 +1,8 @@
 import * as assert from 'assert'
 import * as path from 'path'
-import * as fs from 'fs'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
-         Uri, Command, Disposable, EventEmitter, Event, TextDocumentShowOptions,
+         Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
          workspace, commands, window } from 'vscode'
 import { NAMESPACE } from './constants'
@@ -32,7 +31,7 @@ class RefElement {
     constructor(public refName: string, public hasChildren: boolean) {}
 }
 
-type Element = FileElement | FolderElement | RepoRootElement | RefElement
+export type Element = FileElement | FolderElement | RepoRootElement | RefElement
 type FileSystemElement = FileElement | FolderElement
 
 class ChangeBaseItem implements QuickPickItem {
@@ -152,7 +151,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.filesInsideTreeRoot.size > 0 ||
                 (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0);
 
-            return [new RefElement(this.baseRef, hasFiles)];
+                return [new RefElement(this.baseRef, hasFiles)];
         } else if (element instanceof RefElement) {
             const entries: Element[] = [];
             if (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0) {

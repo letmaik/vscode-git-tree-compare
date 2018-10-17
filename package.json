@@ -29,10 +29,16 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.23.0"
+        "vscode": "^1.27.0"
     },
     "activationEvents": [
-        "onView:gitTreeCompare"
+        "onView:gitTreeCompare",
+        "onCommand:gitTreeCompare.openChanges",
+        "onCommand:gitTreeCompare.openFile",
+        "onCommand:gitTreeCompare.openAllChanges",
+        "onCommand:gitTreeCompare.openChangedFiles",
+        "onCommand:gitTreeCompare.changeBase",
+        "onCommand:gitTreeCompare.refresh"
     ],
     "main": "./out/src/extension",
     "contributes": {
