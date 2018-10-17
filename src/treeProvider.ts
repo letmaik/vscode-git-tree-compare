@@ -34,7 +34,7 @@ class RefElement {
 export type Element = FileElement | FolderElement | RepoRootElement | RefElement
 type FileSystemElement = FileElement | FolderElement
 
-class ChangeBaseItem implements QuickPickItem {
+class ChangeBaseRefItem implements QuickPickItem {
 	protected get shortCommit(): string { return (this.ref.commit || '').substr(0, 8); }
 	get label(): string { return this.ref.name!; }
 	get description(): string { return this.shortCommit; }
@@ -42,16 +42,21 @@ class ChangeBaseItem implements QuickPickItem {
 	constructor(public ref: Ref) { }
 }
 
-class ChangeBaseTagItem extends ChangeBaseItem {
+class ChangeBaseTagItem extends ChangeBaseRefItem {
 	get description(): string {
 		return "Tag at " + this.shortCommit;
 	}
 }
 
-class ChangeBaseRemoteHeadItem extends ChangeBaseItem {
+class ChangeBaseRemoteHeadItem extends ChangeBaseRefItem {
 	get description(): string {
 		return "Remote branch at " + this.shortCommit;
 	}
+}
+
+class ChangeBaseCommitItem implements QuickPickItem {
+	get label(): string { return "$(git-commit) Custom commit"; }
+	get description(): string { return ""; }
 }
 
 type FolderAbsPath = string;
@@ -516,20 +521,37 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async promptChangeBase() {
+        const commit = new ChangeBaseCommitItem();
         const refs = (await this.repository.getRefs()).filter(ref => ref.name);
-        const heads = refs.filter(ref => ref.type === RefType.Head).map(ref => new ChangeBaseItem(ref));
+        const heads = refs.filter(ref => ref.type === RefType.Head).map(ref => new ChangeBaseRefItem(ref));
         const tags = refs.filter(ref => ref.type === RefType.Tag).map(ref => new ChangeBaseTagItem(ref));
         const remoteHeads = refs.filter(ref => ref.type === RefType.RemoteHead).map(ref => new ChangeBaseRemoteHeadItem(ref));
-        const picks = [...heads, ...tags, ...remoteHeads];
+        const picks = [commit, ...heads, ...tags, ...remoteHeads];
 
         const placeHolder = 'Select a ref to use as comparison base';
-        const choice = await window.showQuickPick<ChangeBaseItem>(picks, { placeHolder });
+        const choice = await window.showQuickPick<QuickPickItem>(picks, { placeHolder });
 
         if (!choice) {
             return;
         }
 
-        const baseRef = choice.ref.name!;
+        let baseRef: string;
+
+        if (choice instanceof ChangeBaseRefItem) {
+            baseRef = choice.ref.name!;
+        } else if (choice instanceof ChangeBaseCommitItem) {
+            const commitInput = await window.showInputBox({
+                prompt: 'Enter a commit hash to use as comparison base',
+                placeHolder: 'Commit hash'
+            })
+            if (!commitInput) {
+                return;
+            }
+            baseRef = commitInput;
+        } else {
+            throw new Error("unsupported item type");
+        }
+        
         if (this.baseRef === baseRef) {
             return;
         }
