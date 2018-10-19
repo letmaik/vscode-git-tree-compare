@@ -1,3 +1,9 @@
+## 1.4.0
+
+* Added configuration option to choose location of tree view [#43](https://github.com/letmaik/vscode-git-tree-compare/issues/43)
+* Allow to enter custom commit as comparison base [#42](https://github.com/letmaik/vscode-git-tree-compare/issues/42)
+* Fixed invoking commands via command palette if extension wasn't activated yet [#40](https://github.com/letmaik/vscode-git-tree-compare/issues/40)
+
 ## 1.3.0
 
 * Moved tree view into source control container [#39](https://github.com/letmaik/vscode-git-tree-compare/issues/39)

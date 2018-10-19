@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch or tag in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
