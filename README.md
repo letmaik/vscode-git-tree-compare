@@ -1,6 +1,6 @@
 # Git Tree Compare
 
-This [Visual Studio Code](https://code.visualstudio.com/) extension helps you compare your working tree against a branch or tag in a natural **folder tree structure**.
+This [Visual Studio Code](https://code.visualstudio.com/) extension helps you compare your working tree against a branch, tag, or commit in a natural **folder tree structure**.
 
 It is perfect for keeping an eye on what your pull request will look like, a **pull request preview** one could say. You don't have to leave your editor at all anymore!
 
@@ -10,13 +10,15 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 ## Features
 
-- Working tree comparison against any branch or tag
+- Working tree comparison against any chosen branch, tag, or commit
 
 - Open Changes or Open File
 
 - Automatic refresh on file changes
 
-- Remembers the comparison branch or tag per workspace
+- Remembers the chosen comparison base per workspace
+
+- Configurable location of tree view
 
 - Log output of all git commands run
 
@@ -31,3 +33,5 @@ In bigger projects with many files it also provides **context**, it gives you a 
 `gitTreeCompare.includeFilesOutsideWorkspaceRoot` Determines whether to display the special `/` node when the tree root is not the repository root and there are changes outside the workspace folder. Default is to display the `/` node.
 
 `gitTreeCompare.iconsMinimal` Option which enables a compact icon layout where only files have icons, comparable to the Seti file icon theme.
+
+`gitTreeCompare.location` Determines where the comparison tree view is displayed, either in the Explorer tab or the Source Control (default) tab.
