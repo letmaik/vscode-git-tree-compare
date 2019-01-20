@@ -2,6 +2,7 @@
 
 * Added configuration option to choose diff mode [#44](https://github.com/letmaik/vscode-git-tree-compare/issues/44)
 * Added menu item to switch diff mode directly
+* Fixed files outside tree root not being opened when using Open Changed Files / Open All Files commands
 
 ## 1.4.0
 

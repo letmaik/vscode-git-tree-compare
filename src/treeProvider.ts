@@ -518,7 +518,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     *iterFiles() {
         for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
-            for (let files of this.filesInsideTreeRoot.values()) {
+            for (let files of filesMap.values()) {
                 for (let file of files) {
                     if (!file.isSubmodule) {
                         yield file;
