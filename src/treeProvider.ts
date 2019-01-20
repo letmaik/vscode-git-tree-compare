@@ -199,12 +199,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.fullDiff = config.get<string>('diffMode') === 'full';
     }
 
-    private getStoredBaseRef(): string | undefined {
+    private async getStoredBaseRef(): Promise<string | undefined> {
         let baseRef = this.workspaceState.get<string>('baseRef_' + this.workspaceFolder.name);
-        if (baseRef !== undefined) {
-            this.log('Using stored base ref: ' + baseRef);
+        if (baseRef) {
+            if (await this.isRefExisting(baseRef)) {
+                this.log('Using stored base ref: ' + baseRef);
+            } else {
+                this.log('Not using non-existant stored base ref: ' + baseRef);
+                baseRef = undefined;
+            }
         }
         return baseRef;
+    }
+
+    private async isRefExisting(refName: string): Promise<boolean> {
+        const refs = await this.repository.getRefs();
+        const exists = refs.some(ref => ref.name === refName);
+        return exists;
     }
 
     private updateStoredBaseRef(baseRef: string) {
@@ -254,9 +265,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // if detached HEAD, then .commit exists, otherwise only .name
             const headName = HEAD.name;
             const headCommit = HEAD.commit || await getBranchCommit(this.absGitCommonDir, HEAD.name!);
+            if (baseRef) {
+                const exists = await this.isRefExisting(baseRef);
+                if (!exists) {
+                    // happens when branch was deleted
+                    baseRef = undefined;
+                }
+            }
             if (!baseRef) {
-                // TODO check that the ref still exists and ignore otherwise
-                baseRef = this.getStoredBaseRef();
+                baseRef = await this.getStoredBaseRef();           
             }
             if (!baseRef) {
                 baseRef = await getDefaultBranch(this.repository, this.absGitCommonDir, HEAD);
