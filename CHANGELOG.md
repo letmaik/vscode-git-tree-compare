@@ -1,7 +1,7 @@
 ## 1.5.0
 
-* Added configuration option to choose diff mode [#44](https://github.com/letmaik/vscode-git-tree-compare/issues/44)
-* Added menu item to switch diff mode directly
+* Added support for multi-root workspaces [#22](https://github.com/letmaik/vscode-git-tree-compare/issues/22)
+* Added support for "full" diff mode (next to the existing merge-based mode) [#44](https://github.com/letmaik/vscode-git-tree-compare/issues/44)
 * Fixed files outside tree root not being opened when using Open Changed Files / Open All Files commands
 
 ## 1.4.0

@@ -2,22 +2,17 @@ import { ExtensionContext, workspace, window, Disposable, commands, TreeView } f
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider, Element } from './treeProvider';
-import { createGit, getAbsGitDir, getAbsGitCommonDir } from './gitHelper';
+import { createGit, getGitWorkspaceFolders } from './gitHelper';
 import { toDisposable } from './git/util';
 
 export function activate(context: ExtensionContext) {
     const disposables: Disposable[] = [];
     context.subscriptions.push(new Disposable(() => Disposable.from(...disposables).dispose()));
 
-    const rootPath = workspace.rootPath;
-    if (!rootPath) {
-        return;
-    }
-
     const outputChannel = window.createOutputChannel('Git Tree Compare');
     disposables.push(outputChannel);
 
-    let provider: GitTreeCompareProvider | null = null
+    let provider: GitTreeCompareProvider | null = null;
     let treeView: TreeView<Element> | null = null;
 
     commands.registerCommand(NAMESPACE + '.openChanges', node => {
@@ -54,6 +49,13 @@ export function activate(context: ExtensionContext) {
         }
     }
 
+    commands.registerCommand(NAMESPACE + '.changeRepository', () => {
+        runAfterInit(() => {
+            provider!.promptChangeRepository().then(() => {
+                showCollapsedHint();
+            });
+        });
+    });
     commands.registerCommand(NAMESPACE + '.changeBase', () => {
         runAfterInit(() => {
             provider!.promptChangeBase().then(() => {
@@ -82,15 +84,19 @@ export function activate(context: ExtensionContext) {
     });
 
     createGit(outputChannel).then(async git => {
-        const onOutput = str => outputChannel.append(str);
+        const onOutput = (str: string) => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
-        const repositoryRoot = await git.getRepositoryRoot(rootPath);
-        const repository = git.open(repositoryRoot);
-        const absGitDir = await getAbsGitDir(repository);
-        const absGitCommonDir = await getAbsGitCommonDir(repository);
-        provider = new GitTreeCompareProvider(outputChannel, repository, absGitDir, absGitCommonDir, context.workspaceState);
+        // use arbitrary workspace folder at start if there are multiple
+        const gitRepos = await getGitWorkspaceFolders(git);
+        if (gitRepos.length === 0) {
+            return;
+        }
+
+        provider = new GitTreeCompareProvider(git, outputChannel, context.workspaceState);
+        await provider.setRepository(gitRepos[0]);
+
         treeView = window.createTreeView(
             NAMESPACE,
             {treeDataProvider: provider}

@@ -1,23 +1,37 @@
 import * as path from 'path';
 import * as fs from 'fs';
 
-import { ExtensionContext, workspace, window, Disposable, commands, Uri, OutputChannel } from 'vscode';
-import { findGit, Git, Repository, Ref, Branch, IExecutionResult } from './git/git';
+import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
+import { findGit, Git, Repository, Ref, Branch } from './git/git';
 import { Askpass } from './git/askpass';
-import { toDisposable, denodeify } from './git/util';
+import { denodeify } from './git/util';
 
 const readFile = denodeify<string>(fs.readFile);
 const stat = denodeify<fs.Stats>(fs.stat);
 
 export async function createGit(outputChannel: OutputChannel): Promise<Git> {
-    const workspaceRootPath = workspace.rootPath;
-
     const pathHint = workspace.getConfiguration('git').get<string>('path');
     const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
     outputChannel.appendLine(`Using git ${info.version} from ${info.path}`);
     const askpass = new Askpass();
     const env = await askpass.getEnv();
     return new Git({ gitPath: info.path, version: info.version, env });
+}
+
+async function isWithinGitRepo(git: Git, folder: string): Promise<boolean> {
+    try {
+        await git.getRepositoryRoot(folder);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function getGitWorkspaceFolders(git: Git): Promise<WorkspaceFolder[]> {
+    const workspaceFolders = workspace.workspaceFolders || [];
+    const localFolders = workspaceFolders.filter(w => w.uri.scheme === 'file');
+    const localGitFolders = localFolders.filter(async w => await isWithinGitRepo(git, w.uri.fsPath));
+    return localGitFolders;
 }
 
 export async function getAbsGitDir(repo: Repository): Promise<string> {

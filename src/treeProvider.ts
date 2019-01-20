@@ -4,13 +4,13 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window } from 'vscode'
+         workspace, commands, window, WorkspaceFolder, WorkspaceFoldersChangeEvent } from 'vscode'
 import { NAMESPACE } from './constants'
-import { Repository, Ref, RefType } from './git/git'
+import { Repository, Ref, RefType, Git } from './git/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { toGitUri } from './git/uri'
 import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, StatusCode } from './gitHelper'
+         diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir, getGitWorkspaceFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 
 class FileElement implements IDiffStatus {
@@ -28,7 +28,7 @@ class RepoRootElement extends FolderElement {
 }
 
 class RefElement {
-    constructor(public refName: string, public hasChildren: boolean) {}
+    constructor(public workspaceFolder: WorkspaceFolder, public refName: string, public hasChildren: boolean) {}
 }
 
 export type Element = FileElement | FolderElement | RepoRootElement | RefElement
@@ -59,6 +59,13 @@ class ChangeBaseCommitItem implements QuickPickItem {
 	get description(): string { return ""; }
 }
 
+class ChangeRepositoryItem implements QuickPickItem {
+    constructor(public workspaceFolder: WorkspaceFolder) { }
+
+	get label(): string { return this.workspaceFolder.name; }
+	get description(): string { return this.workspaceFolder.uri.fsPath; }
+}
+
 type FolderAbsPath = string;
 
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
@@ -66,17 +73,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
     readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
+    private treeRootIsRepo: boolean;
+    private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
     private autoRefresh: boolean;
     private iconsMinimal: boolean;
     private fullDiff: boolean;
 
-    private treeRoot: FolderAbsPath;
-    private readonly repoRoot: FolderAbsPath;
+    private workspaceFolder: WorkspaceFolder;
+    private repository: Repository;
+    private absGitDir: string;
+    private absGitCommonDir: string;
 
+    private treeRoot: FolderAbsPath;
+    private repoRoot: FolderAbsPath;
     private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
-    private includeFilesOutsideWorkspaceRoot: boolean;
+    
     private readonly loadedFolderElements: Map<FolderAbsPath, FolderElement> = new Map();
 
     private headLastChecked: Date;
@@ -87,12 +100,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private readonly disposables: Disposable[] = [];
 
-    constructor(private outputChannel: OutputChannel, private repository: Repository,
-                private absGitDir: string, private absGitCommonDir: string, private workspaceState: Memento) {
-        this.repoRoot = path.normalize(repository.root);
+    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly workspaceState: Memento) {
         this.readConfig();
-
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
+
+        this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
 
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
@@ -105,6 +117,62 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
     }
 
+    async setRepository(workspaceFolder: WorkspaceFolder) {
+        if (workspaceFolder.uri.scheme !== 'file') {
+            throw new Error('Workspace folder must have file scheme: ' + workspaceFolder.uri.toString());
+        }
+        const repositoryRoot = await this.git.getRepositoryRoot(workspaceFolder.uri.fsPath);
+        this.repository = this.git.open(repositoryRoot);
+        this.repoRoot = path.normalize(this.repository.root);
+        this.absGitDir = await getAbsGitDir(this.repository);
+        this.absGitCommonDir = await getAbsGitCommonDir(this.repository);
+        this.workspaceFolder = workspaceFolder;
+        this.updateTreeRootFolder();
+        this.log('Using workspace folder: ' + workspaceFolder.uri.fsPath);
+    }
+
+    async changeRepository(workspaceFolder: WorkspaceFolder) {
+        try {
+            await this.setRepository(workspaceFolder);
+            await this.updateRefs();
+            await this.updateDiff(false);
+        } catch (e) {
+            let msg = 'Changing the repository failed';
+            this.log(msg, e);
+            window.showErrorMessage(`${msg}: ${e.message}`);
+            return;
+        }
+        this._onDidChangeTreeData.fire();
+    }
+
+    async promptChangeRepository() {
+        const gitRepos = await getGitWorkspaceFolders(this.git);
+        const gitReposWithoutCurrent = gitRepos.filter(w => this.workspaceFolder.uri.fsPath !== w.uri.fsPath);
+        const picks = gitReposWithoutCurrent.map(r => new ChangeRepositoryItem(r));
+        const placeHolder = 'Select a workspace folder';
+        const choice = await window.showQuickPick<ChangeRepositoryItem>(picks, { placeHolder });
+
+        if (!choice) {
+            return;
+        }
+
+        await this.changeRepository(choice.workspaceFolder);
+    }
+
+    private async handleWorkspaceFoldersChanged(e: WorkspaceFoldersChangeEvent) {
+        // If the folder got removed that was currently active in the diff,
+        // then pick an arbitrary new one.
+        for (var removedFolder of e.removed) {
+            if (removedFolder.uri.toString() === this.workspaceFolder.uri.toString()) {
+                const gitRepos = await getGitWorkspaceFolders(this.git);
+                if (gitRepos.length > 0) {
+                    const newFolder = gitRepos[0];
+                    await this.changeRepository(newFolder);
+                }
+            }
+        }
+    }
+
     private log(msg: string, error: Error | undefined=undefined) {
         if (error) {
             console.warn(msg, error);
@@ -113,14 +181,18 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.outputChannel.appendLine(msg);
     }
 
-    private readConfig() {
-        const config = workspace.getConfiguration(NAMESPACE);
-        if (config.get<string>('root') === 'repository') {
+    private updateTreeRootFolder() {
+        if (this.treeRootIsRepo) {
             this.treeRoot = this.repoRoot;
         } else {
-            this.treeRoot = workspace.rootPath!;
+            this.treeRoot = this.workspaceFolder.uri.fsPath;
         }
-        this.includeFilesOutsideWorkspaceRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
+    }
+
+    private readConfig() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        this.treeRootIsRepo = config.get<string>('root') === 'repository';
+        this.includeFilesOutsideWorkspaceFolderRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
@@ -128,7 +200,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private getStoredBaseRef(): string | undefined {
-        let baseRef = this.workspaceState.get<string>('baseRef');
+        let baseRef = this.workspaceState.get<string>('baseRef_' + this.workspaceFolder.name);
         if (baseRef !== undefined) {
             this.log('Using stored base ref: ' + baseRef);
         }
@@ -136,7 +208,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private updateStoredBaseRef(baseRef: string) {
-        this.workspaceState.update('baseRef', baseRef);
+        this.workspaceState.update('baseRef_' + this.workspaceFolder.name, baseRef);
     }
 
     getTreeItem(element: Element): TreeItem {
@@ -156,12 +228,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             const hasFiles =
                 this.filesInsideTreeRoot.size > 0 ||
-                (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0);
+                (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0);
 
-                return [new RefElement(this.baseRef, hasFiles)];
+                return [new RefElement(this.workspaceFolder, this.baseRef, hasFiles)];
         } else if (element instanceof RefElement) {
             const entries: Element[] = [];
-            if (this.includeFilesOutsideWorkspaceRoot && this.filesOutsideTreeRoot.size > 0) {
+            if (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0) {
                 entries.push(new RepoRootElement(this.repoRoot));
             }
             return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
@@ -418,19 +490,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async handleConfigChange() {
-        const oldRoot = this.treeRoot;
-        const oldInclude = this.includeFilesOutsideWorkspaceRoot;
+        const oldTreeRootIsRepo = this.treeRootIsRepo;
+        const oldInclude = this.includeFilesOutsideWorkspaceFolderRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
         const oldIconsMinimal = this.iconsMinimal;
         const oldFullDiff = this.fullDiff;
         this.readConfig();
-        if (oldRoot != this.treeRoot ||
-            oldInclude != this.includeFilesOutsideWorkspaceRoot ||
+        if (oldTreeRootIsRepo != this.treeRootIsRepo ||
+            oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
             oldIconsMinimal != this.iconsMinimal ||
             (!oldAutoRefresh && this.autoRefresh) ||
             oldFullDiff != this.fullDiff) {
+
+            if (oldTreeRootIsRepo != this.treeRootIsRepo) {
+                this.updateTreeRootFolder();
+            }
             
             if (oldFullDiff != this.fullDiff) {
                 await this.updateRefs(this.baseRef);
@@ -665,6 +741,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const label = element.refName;
         const state = element.hasChildren ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.None;
         const item = new TreeItem(label, state);
+        item.tooltip = `${element.refName} (${element.workspaceFolder.name})`;
         item.contextValue = 'ref';
         item.id = 'ref'
         if (!iconsMinimal) {
