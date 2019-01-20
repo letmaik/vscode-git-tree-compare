@@ -1,3 +1,8 @@
+## 1.5.0
+
+* Added configuration option to choose diff mode [#44](https://github.com/letmaik/vscode-git-tree-compare/issues/44)
+* Added menu item to switch diff mode directly
+
 ## 1.4.0
 
 * Added configuration option to choose location of tree view [#43](https://github.com/letmaik/vscode-git-tree-compare/issues/43)

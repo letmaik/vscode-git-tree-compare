@@ -74,6 +74,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.openChangedFiles', () => {
         runAfterInit(() => provider!.openChangedFiles());
     });
+    commands.registerCommand(NAMESPACE + '.switchToFullDiff', () => {
+        runAfterInit(() => provider!.switchToFullDiff());
+    });
+    commands.registerCommand(NAMESPACE + '.switchToMergeDiff', () => {
+        runAfterInit(() => provider!.switchToMergeDiff());
+    });
 
     createGit(outputChannel).then(async git => {
         const onOutput = str => outputChannel.append(str);
@@ -89,5 +95,5 @@ export function activate(context: ExtensionContext) {
             NAMESPACE,
             {treeDataProvider: provider}
         );
-    })
+    });
 }

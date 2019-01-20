@@ -69,6 +69,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private openChangesOnSelect: boolean;
     private autoRefresh: boolean;
     private iconsMinimal: boolean;
+    private fullDiff: boolean;
 
     private treeRoot: FolderAbsPath;
     private readonly repoRoot: FolderAbsPath;
@@ -123,6 +124,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
+        this.fullDiff = config.get<string>('diffMode') === 'full';
     }
 
     private getStoredBaseRef(): string | undefined {
@@ -209,7 +211,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             const HEADref: string = (HEAD.name || HEAD.commit)!;
             let mergeBase = baseRef;
-            if (baseRef != HEAD.name) {
+            if (!this.fullDiff && baseRef != HEAD.name) {
                 // determine merge base to create more sensible/compact diff
                 try {
                     mergeBase = await getMergeBase(this.repository, HEADref, baseRef);
@@ -227,7 +229,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (this.baseRef !== baseRef) {
                 this.log(`Base ref updated: ${this.baseRef} -> ${baseRef}`);
             }
-            if (this.mergeBase !== mergeBase) {
+            if (!this.fullDiff && this.mergeBase !== mergeBase) {
                 this.log(`Merge base updated: ${this.mergeBase} -> ${mergeBase}`);
             }
             this.headLastChecked = headLastChecked;
@@ -415,19 +417,25 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    private handleConfigChange() {
+    private async handleConfigChange() {
         const oldRoot = this.treeRoot;
         const oldInclude = this.includeFilesOutsideWorkspaceRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
         const oldIconsMinimal = this.iconsMinimal;
+        const oldFullDiff = this.fullDiff;
         this.readConfig();
         if (oldRoot != this.treeRoot ||
             oldInclude != this.includeFilesOutsideWorkspaceRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
             oldIconsMinimal != this.iconsMinimal ||
-            (!oldAutoRefresh && this.autoRefresh)) {
-
+            (!oldAutoRefresh && this.autoRefresh) ||
+            oldFullDiff != this.fullDiff) {
+            
+            if (oldFullDiff != this.fullDiff) {
+                await this.updateRefs(this.baseRef);
+                await this.updateDiff(false);
+            }
             this._onDidChangeTreeData.fire();
         }
     }
@@ -595,6 +603,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 window.showErrorMessage(`${msg}: ${e.message}`);
             }
         });
+    }
+
+    async switchToMergeDiff() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('diffMode', 'merge', true);
+    }
+
+    async switchToFullDiff() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('diffMode', 'full', true);
     }
 
     dispose(): void {

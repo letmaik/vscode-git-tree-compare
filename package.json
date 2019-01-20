@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch, tag, or commit in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -88,6 +88,16 @@
                 "command": "gitTreeCompare.refresh",
                 "title": "Refresh",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.switchToFullDiff",
+                "title": "Switch to Full Diff",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.switchToMergeDiff",
+                "title": "Switch to Merge Diff",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -107,6 +117,14 @@
                 {
                     "command": "gitTreeCompare.refresh",
                     "when": "view == gitTreeCompare"
+                },
+                {
+                    "command": "gitTreeCompare.switchToFullDiff",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == merge"
+                },
+                {
+                    "command": "gitTreeCompare.switchToMergeDiff",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == full"
                 }
             ],
             "view/item/context": [
@@ -133,6 +151,14 @@
                 {
                     "command": "gitTreeCompare.refresh",
                     "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.switchToFullDiff",
+                    "when": "view == gitTreeCompare && viewItem == ref && config.gitTreeCompare.diffMode == merge"
+                },
+                {
+                    "command": "gitTreeCompare.switchToMergeDiff",
+                    "when": "view == gitTreeCompare && viewItem == ref && config.gitTreeCompare.diffMode == full"
                 }
             ]
         },
@@ -162,6 +188,15 @@
                     "type": "boolean",
                     "description": "If gitTreeCompare.root is \"workspace\", whether to display files which are within the repository but outside the workspace in a special \"/\" folder.",
                     "default": true
+                },
+                "gitTreeCompare.diffMode": {
+                    "type": "string",
+                    "enum": [
+                        "merge",
+                        "full"
+                    ],
+                    "description": "Whether to compare against the selected base ref directly (full mode) or by computing a merge base first (merge mode).",
+                    "default": "merge"
                 },
                 "gitTreeCompare.iconsMinimal": {
                     "type": "boolean",
