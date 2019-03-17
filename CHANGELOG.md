@@ -1,3 +1,7 @@
+## 1.6.0
+
+* Added buttons for Open File, Open Changes, and Refresh (if auto refresh is disabled) [#46](https://github.com/letmaik/vscode-git-tree-compare/issues/46)
+
 ## 1.5.0
 
 * Added support for multi-root workspaces [#22](https://github.com/letmaik/vscode-git-tree-compare/issues/22)

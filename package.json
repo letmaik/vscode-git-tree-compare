@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch, tag, or commit in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -70,21 +70,37 @@
             {
                 "command": "gitTreeCompare.openChanges",
                 "title": "Open Changes",
+                "icon":{
+                    "dark": "resources/icons/dark/open-change.svg",
+                    "light": "resources/icons/light/open-change.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openFile",
                 "title": "Open File",
+                "icon":{
+                    "dark": "resources/icons/dark/open-file-mono.svg",
+                    "light": "resources/icons/light/open-file-mono.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openAllChanges",
                 "title": "Open All Changes",
+                "icon":{
+                    "dark": "resources/icons/dark/open-change.svg",
+                    "light": "resources/icons/light/open-change.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openChangedFiles",
                 "title": "Open Changed Files",
+                "icon":{
+                    "dark": "resources/icons/dark/open-file-mono.svg",
+                    "light": "resources/icons/light/open-file-mono.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
@@ -95,6 +111,10 @@
             {
                 "command": "gitTreeCompare.refresh",
                 "title": "Refresh",
+                "icon":{
+                    "dark": "resources/icons/dark/refresh.svg",
+                    "light": "resources/icons/light/refresh.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
@@ -131,6 +151,11 @@
                     "when": "view == gitTreeCompare"
                 },
                 {
+                    "command": "gitTreeCompare.refresh",
+                    "when": "view == gitTreeCompare && !config.gitTreeCompare.autoRefresh",
+                    "group": "navigation"
+                },
+                {
                     "command": "gitTreeCompare.switchToFullDiff",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == merge"
                 },
@@ -140,6 +165,16 @@
                 }
             ],
             "view/item/context": [
+                {
+                    "command": "gitTreeCompare.openChanges",
+                    "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges",
+                    "group": "inline"
+                },
+                {
+                    "command": "gitTreeCompare.openFile",
+                    "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges",
+                    "group": "inline"
+                },
                 {
                     "command": "gitTreeCompare.openChanges",
                     "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
@@ -165,8 +200,14 @@
                     "when": "view == gitTreeCompare && viewItem == ref"
                 },
                 {
-                    "command": "gitTreeCompare.refresh",
-                    "when": "view == gitTreeCompare && viewItem == ref"
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "inline"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "inline"
                 },
                 {
                     "command": "gitTreeCompare.switchToFullDiff",

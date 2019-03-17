@@ -5,5 +5,9 @@ The FolderOpen_16x.svg and FolderOpen_16x_inverse.svg files in dark/ and light/ 
 extensions/theme-defaults/fileicons/images folder within the Microsoft/vscode GitHub repository,
 see https://github.com/Microsoft/vscode/tree/master/extensions/theme-defaults/fileicons/images.
 
+The open-change.svg, open-file-mono.svg, and refresh.svg files in dark/ and light/ are unmodified copies from the
+extensions/git/resources/icons/{dark,light} folders within the Microsoft/vscode
+GitHub repository, see https://github.com/Microsoft/vscode/tree/master/extensions/git/resources/icons.
+
 The git-compare.svg files in dark/ and light/ are from the Octicons set,
 see https://octicons.github.com/.
