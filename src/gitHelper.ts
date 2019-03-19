@@ -30,7 +30,13 @@ async function isWithinGitRepo(git: Git, folder: string): Promise<boolean> {
 export async function getGitWorkspaceFolders(git: Git): Promise<WorkspaceFolder[]> {
     const workspaceFolders = workspace.workspaceFolders || [];
     const localFolders = workspaceFolders.filter(w => w.uri.scheme === 'file');
-    const localGitFolders = localFolders.filter(async w => await isWithinGitRepo(git, w.uri.fsPath));
+
+    async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
+        const bits = await Promise.all(array.map(filter));
+        return array.filter(_ => bits.shift());
+    }
+
+    const localGitFolders = await filterAsync(localFolders, async w => await isWithinGitRepo(git, w.uri.fsPath));
     return localGitFolders;
 }
 

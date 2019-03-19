@@ -88,14 +88,13 @@ export function activate(context: ExtensionContext) {
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
+        provider = new GitTreeCompareProvider(git, outputChannel, context.workspaceState);
+
         // use arbitrary workspace folder at start if there are multiple
         const gitRepos = await getGitWorkspaceFolders(git);
-        if (gitRepos.length === 0) {
-            return;
+        if (gitRepos.length > 0) {
+            await provider.setRepository(gitRepos[0]);
         }
-
-        provider = new GitTreeCompareProvider(git, outputChannel, context.workspaceState);
-        await provider.setRepository(gitRepos[0]);
 
         treeView = window.createTreeView(
             NAMESPACE,

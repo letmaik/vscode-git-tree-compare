@@ -81,7 +81,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private fullDiff: boolean;
 
     private workspaceFolder: WorkspaceFolder;
-    private repository: Repository;
+    private repository: Repository | undefined;
     private absGitDir: string;
     private absGitCommonDir: string;
 
@@ -131,6 +131,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.log('Using workspace folder: ' + workspaceFolder.uri.fsPath);
     }
 
+    async unsetRepository() {
+        this.repository = undefined;
+        this._onDidChangeTreeData.fire();
+        this.log('No workspace folder selected');
+    }
+
     async changeRepository(workspaceFolder: WorkspaceFolder) {
         try {
             await this.setRepository(workspaceFolder);
@@ -168,7 +174,18 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 if (gitRepos.length > 0) {
                     const newFolder = gitRepos[0];
                     await this.changeRepository(newFolder);
+                } else {
+                    await this.unsetRepository();
                 }
+            }
+        }
+        // If no repository is selected but new folders were added,
+        // then pick an arbitrary new one.
+        if (!this.repository && e.added) {
+            const gitRepos = await getGitWorkspaceFolders(this.git);
+            if (gitRepos.length > 0) {
+                const newFolder = gitRepos[0];
+                await this.changeRepository(newFolder);
             }
         }
     }
@@ -213,7 +230,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async isRefExisting(refName: string): Promise<boolean> {
-        const refs = await this.repository.getRefs();
+        const refs = await this.repository!.getRefs();
         const exists = refs.some(ref => ref.name === refName);
         return exists;
     }
@@ -228,6 +245,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async getChildren(element?: Element): Promise<Element[]> {
         if (!element) {
+            if (!this.repository) {
+                return [];
+            }
             if (!this.filesInsideTreeRoot) {
                 try {
                     await this.updateDiff(false);
@@ -261,7 +281,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.log('Updating refs');
         try {
             const headLastChecked = new Date();
-            const HEAD = await this.repository.getHEAD();
+            const HEAD = await this.repository!.getHEAD();
             // if detached HEAD, then .commit exists, otherwise only .name
             const headName = HEAD.name;
             const headCommit = HEAD.commit || await getBranchCommit(this.absGitCommonDir, HEAD.name!);
@@ -276,7 +296,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 baseRef = await this.getStoredBaseRef();           
             }
             if (!baseRef) {
-                baseRef = await getDefaultBranch(this.repository, this.absGitCommonDir, HEAD);
+                baseRef = await getDefaultBranch(this.repository!, this.absGitCommonDir, HEAD);
             }
             if (!baseRef) {
                 if (HEAD.name) {
@@ -284,7 +304,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 } else {
                     // detached HEAD and no default branch was found
                     // pick an arbitrary ref as base, give preference to common refs
-                    const refs = await this.repository.getRefs();
+                    const refs = await this.repository!.getRefs();
                     const commonRefs = ['origin/master', 'master'];
                     const match = refs.find(ref => ref.name !== undefined && commonRefs.indexOf(ref.name) !== -1);
                     if (match) {
@@ -303,7 +323,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (!this.fullDiff && baseRef != HEAD.name) {
                 // determine merge base to create more sensible/compact diff
                 try {
-                    mergeBase = await getMergeBase(this.repository, HEADref, baseRef);
+                    mergeBase = await getMergeBase(this.repository!, HEADref, baseRef);
                 } catch (e) {
                     // sometimes the merge base cannot be determined
                     // this can be the case with shallow clones but may have other reasons
@@ -341,7 +361,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        let diff = await diffIndex(this.repository, this.mergeBase);
+        let diff = await diffIndex(this.repository!, this.mergeBase);
         this.log(`${diff.length} diff entries`);
 
         for (const entry of diff) {
@@ -478,7 +498,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     @debounce(2000)
     private async handleWorkspaceChange(path: Uri) {
-        if (!this.autoRefresh) {
+        if (!this.autoRefresh || !this.repository) {
             return
         }
         if (!window.state.focused) {
@@ -520,6 +540,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldIconsMinimal != this.iconsMinimal ||
             (!oldAutoRefresh && this.autoRefresh) ||
             oldFullDiff != this.fullDiff) {
+
+            if (!this.repository) {
+                return;
+            }
 
             if (oldTreeRootIsRepo != this.treeRootIsRepo) {
                 this.updateTreeRootFolder();
@@ -622,6 +646,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async promptChangeBase() {
+        if (!this.repository) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
         const commit = new ChangeBaseCommitItem();
         const refs = (await this.repository.getRefs()).filter(ref => ref.name);
         const heads = refs.filter(ref => ref.type === RefType.Head).map(ref => new ChangeBaseRefItem(ref));

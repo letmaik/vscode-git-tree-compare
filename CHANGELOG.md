@@ -1,6 +1,7 @@
 ## 1.6.0
 
 * Added buttons for Open File, Open Changes, and Refresh (if auto refresh is disabled) [#46](https://github.com/letmaik/vscode-git-tree-compare/issues/46)
+* Fixed various issues when adding/removing workspace folders
 
 ## 1.5.0
 
