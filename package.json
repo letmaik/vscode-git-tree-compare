@@ -65,6 +65,10 @@
             {
                 "command": "gitTreeCompare.changeRepository",
                 "title": "Change Repository...",
+                "icon":{
+                    "dark": "resources/icons/dark/repo.svg",
+                    "light": "resources/icons/light/repo.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
@@ -106,6 +110,10 @@
             {
                 "command": "gitTreeCompare.changeBase",
                 "title": "Change Base...",
+                "icon":{
+                    "dark": "resources/icons/dark/git-branch.svg",
+                    "light": "resources/icons/light/git-branch.svg"
+                },
                 "category": "Git Tree Compare"
             },
             {
@@ -133,6 +141,11 @@
                 {
                     "command": "gitTreeCompare.changeRepository",
                     "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1 && workspaceFolderCount != 1"
+                },
+                {
+                    "command": "gitTreeCompare.changeRepository",
+                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1 && workspaceFolderCount != 1",
+                    "group": "navigation"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
@@ -190,6 +203,11 @@
                 {
                     "command": "gitTreeCompare.changeBase",
                     "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "inline"
                 },
                 {
                     "command": "gitTreeCompare.openAllChanges",

@@ -9,5 +9,5 @@ The open-change.svg, open-file-mono.svg, and refresh.svg files in dark/ and ligh
 extensions/git/resources/icons/{dark,light} folders within the Microsoft/vscode
 GitHub repository, see https://github.com/Microsoft/vscode/tree/master/extensions/git/resources/icons.
 
-The git-compare.svg files in dark/ and light/ are from the Octicons set,
+The git-compare.svg, git-branch.svg, and repo.svg files in dark/ and light/ are from the Octicons set,
 see https://octicons.github.com/.
