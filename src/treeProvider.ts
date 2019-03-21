@@ -583,6 +583,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
             }
         }
+        entries.sort((a, b) => path.basename(a.absPath).localeCompare(path.basename(b.absPath)));
 
         // add files
         const fileEntries = files.get(folder);
