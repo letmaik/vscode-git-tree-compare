@@ -140,11 +140,11 @@
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1 && workspaceFolderCount != 1"
+                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1"
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1 && workspaceFolderCount != 1",
+                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1",
                     "group": "navigation"
                 },
                 {
@@ -198,7 +198,7 @@
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitOpenRepositoryCount != 1 && workspaceFolderCount != 1"
+                    "when": "view == gitTreeCompare && viewItem == ref && gitOpenRepositoryCount != 1"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",

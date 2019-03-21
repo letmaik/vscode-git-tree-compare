@@ -2,7 +2,7 @@ import { ExtensionContext, workspace, window, Disposable, commands, TreeView } f
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider, Element } from './treeProvider';
-import { createGit, getGitWorkspaceFolders } from './gitHelper';
+import { createGit, getGitRepositoryFolders } from './gitHelper';
 import { toDisposable } from './git/util';
 
 export function activate(context: ExtensionContext) {
@@ -90,8 +90,8 @@ export function activate(context: ExtensionContext) {
 
         provider = new GitTreeCompareProvider(git, outputChannel, context.workspaceState);
 
-        // use arbitrary workspace folder at start if there are multiple
-        const gitRepos = await getGitWorkspaceFolders(git);
+        // use arbitrary repository at start if there are multiple
+        const gitRepos = await getGitRepositoryFolders(git);
         if (gitRepos.length > 0) {
             await provider.setRepository(gitRepos[0]);
         }

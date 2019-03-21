@@ -8,6 +8,16 @@ import { denodeify } from './git/util';
 
 const readFile = denodeify<string>(fs.readFile);
 const stat = denodeify<fs.Stats>(fs.stat);
+const readdir = denodeify<string[]>(fs.readdir);
+
+async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
+    const bits = await Promise.all(array.map(filter));
+    return array.filter(_ => bits.shift());
+}
+
+async function mapAsync<I,O>(array: I[], map: (entry: I) => Promise<O>) {
+    return await Promise.all(array.map(map));
+}
 
 export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     const pathHint = workspace.getConfiguration('git').get<string>('path');
@@ -18,26 +28,55 @@ export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     return new Git({ gitPath: info.path, version: info.version, env });
 }
 
-async function isWithinGitRepo(git: Git, folder: string): Promise<boolean> {
-    try {
-        await git.getRepositoryRoot(folder);
-        return true;
-    } catch {
-        return false;
+export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[] {
+    const normRepoFolder = path.normalize(repositoryFolder);
+    const allWorkspaceFolders = workspace.workspaceFolders || [];
+    const workspaceFolders = allWorkspaceFolders.filter(ws =>
+        ws.uri.fsPath === normRepoFolder ||
+        // workspace folder is subfolder of repository (or equal)
+        ws.uri.fsPath.startsWith(normRepoFolder + path.sep) ||
+        // repository is subfolder of workspace folder
+        normRepoFolder.startsWith(ws.uri.fsPath + path.sep));
+    if (workspaceFolders.length == 0) {
+        throw new Error(`Could not find any workspace folder for ${normRepoFolder} ` +
+            `in ${allWorkspaceFolders.map(f => f.uri.fsPath)}`);
     }
+    return workspaceFolders;
 }
 
-export async function getGitWorkspaceFolders(git: Git): Promise<WorkspaceFolder[]> {
+export async function getGitRepositoryFolders(git: Git): Promise<string[]> {
     const workspaceFolders = workspace.workspaceFolders || [];
-    const localFolders = workspaceFolders.filter(w => w.uri.scheme === 'file');
+    let localFolders = workspaceFolders.filter(w => w.uri.scheme === 'file').map(w => w.uri.fsPath);
 
-    async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
-        const bits = await Promise.all(array.map(filter));
-        return array.filter(_ => bits.shift());
+    const config = workspace.getConfiguration('git');
+    const autoRepositoryDetection = config.get<boolean | 'subFolders' | 'openEditors'>('autoRepositoryDetection');
+
+    if (autoRepositoryDetection === true || autoRepositoryDetection === 'subFolders') {
+        let subfolders: string[] = [];
+        for (const localFolder of localFolders) {
+			try {
+                let children = await readdir(localFolder);
+                children = children.filter(child => child !== '.git');
+                children = children.map(child => path.join(localFolder, child));
+                children = await filterAsync(children, async child => (await stat(child)).isDirectory());
+                subfolders = subfolders.concat(children);
+            } catch {
+                // ignore
+            }
+        }
+        localFolders = localFolders.concat(subfolders);
     }
 
-    const localGitFolders = await filterAsync(localFolders, async w => await isWithinGitRepo(git, w.uri.fsPath));
-    return localGitFolders;
+    const localPossibleGitFolders = await mapAsync(localFolders, async folder => {
+        try {
+            return await git.getRepositoryRoot(folder);
+        } catch {
+            return undefined;
+        }
+    });
+    const localGitFolders = localPossibleGitFolders.filter(f => f) as string[];
+    const localUniqueGitFolders = [...new Set(localGitFolders)];
+    return localUniqueGitFolders;
 }
 
 export async function getAbsGitDir(repo: Repository): Promise<string> {
