@@ -756,6 +756,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     if (element instanceof FileElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label);
+        item.tooltip = element.absPath;
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.absPath;
         item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
@@ -771,6 +772,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     } else if (element instanceof RepoRootElement) {
         const label = '/';
         const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
+        item.tooltip = element.absPath;
         item.contextValue = 'root';
         item.id = 'root'
         if (!iconsMinimal) {
@@ -783,6 +785,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     } else if (element instanceof FolderElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
+        item.tooltip = element.absPath;
         item.contextValue = 'folder';
         item.id = element.absPath;
         if (!iconsMinimal) {
