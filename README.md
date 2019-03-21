@@ -18,7 +18,7 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Automatic refresh on file changes
 
-- Remembers the chosen comparison base per workspace
+- Remembers the chosen comparison base per repository
 
 - Configurable location of tree view
 

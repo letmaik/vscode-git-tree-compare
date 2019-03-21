@@ -103,7 +103,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private readonly disposables: Disposable[] = [];
 
-    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly workspaceState: Memento) {
+    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly globalState: Memento) {
         this.readConfig();
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
 
@@ -229,8 +229,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
-        // FIXME this should be per-repo, not workspace
-        let baseRef = this.workspaceState.get<string>('baseRef_' + this.workspaceFolder.name);
+        let baseRef = this.globalState.get<string>('baseRef_' + this.repoRoot);
         if (baseRef) {
             if (await this.isRefExisting(baseRef)) {
                 this.log('Using stored base ref: ' + baseRef);
@@ -249,7 +248,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private updateStoredBaseRef(baseRef: string) {
-        this.workspaceState.update('baseRef_' + this.workspaceFolder.name, baseRef);
+        this.globalState.update('baseRef_' + this.repoRoot, baseRef);
     }
 
     getTreeItem(element: Element): TreeItem {
