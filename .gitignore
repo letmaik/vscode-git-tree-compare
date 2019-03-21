@@ -1,4 +1,5 @@
-out
-node_modules
+out/
+dist/
+node_modules/
 *.vsix
 package-lock.json
