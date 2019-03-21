@@ -65,7 +65,7 @@
             {
                 "command": "gitTreeCompare.changeRepository",
                 "title": "Change Repository...",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/repo.svg",
                     "light": "resources/icons/light/repo.svg"
                 },
@@ -74,7 +74,7 @@
             {
                 "command": "gitTreeCompare.openChanges",
                 "title": "Open Changes",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/open-change.svg",
                     "light": "resources/icons/light/open-change.svg"
                 },
@@ -83,7 +83,7 @@
             {
                 "command": "gitTreeCompare.openFile",
                 "title": "Open File",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/open-file-mono.svg",
                     "light": "resources/icons/light/open-file-mono.svg"
                 },
@@ -92,7 +92,7 @@
             {
                 "command": "gitTreeCompare.openAllChanges",
                 "title": "Open All Changes",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/open-change.svg",
                     "light": "resources/icons/light/open-change.svg"
                 },
@@ -101,7 +101,7 @@
             {
                 "command": "gitTreeCompare.openChangedFiles",
                 "title": "Open Changed Files",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/open-file-mono.svg",
                     "light": "resources/icons/light/open-file-mono.svg"
                 },
@@ -110,7 +110,7 @@
             {
                 "command": "gitTreeCompare.changeBase",
                 "title": "Change Base...",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/git-branch.svg",
                     "light": "resources/icons/light/git-branch.svg"
                 },
@@ -119,7 +119,7 @@
             {
                 "command": "gitTreeCompare.refresh",
                 "title": "Refresh",
-                "icon":{
+                "icon": {
                     "dark": "resources/icons/dark/refresh.svg",
                     "light": "resources/icons/light/refresh.svg"
                 },
@@ -301,15 +301,19 @@
         "postinstall": "node ./node_modules/vscode/bin/install"
     },
     "devDependencies": {
-        "typescript": "^2.3.4",
-        "vscode": "^1.1.10",
-        "@types/node": "^7.0.4"
+        "typescript": "^3.3.1",
+        "vscode": "^1.1.33",
+        "@types/node": "^10.2.0",
+        "@types/which": "^1.0.28",
+        "@types/byline": "4.2.31",
+        "@types/file-type": "^5.2.1"
     },
     "dependencies": {
         "byline": "^5.0.0",
         "file-type": "^7.2.0",
-        "iconv-lite": "0.4.19",
-        "vscode-nls": "^3.2.1",
+        "iconv-lite": "0.4.24",
+        "jschardet": "^1.6.0",
+        "vscode-nls": "^4.0.0",
         "which": "^1.3.0"
     }
 }

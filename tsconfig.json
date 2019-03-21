@@ -1,16 +1,16 @@
 {
     "compilerOptions": {
+        "target": "es2018",
         "module": "commonjs",
-        "target": "es6",
-        "outDir": "out",
-        "lib": [
-            "es6"
-        ],
+        "outDir": "./out",
         "sourceMap": true,
-        "rootDir": ".",
-        "alwaysStrict": true,
-        "strictNullChecks": true,
-        "forceConsistentCasingInFileNames": true,
+		"strict": true,
+		"alwaysStrict": true,
+		"noImplicitAny": true,
+		"noImplicitReturns": true,
+		"noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "strictPropertyInitialization": false,
         "experimentalDecorators": true
     },
     "include": [

@@ -6,14 +6,14 @@ import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
          workspace, commands, window, WorkspaceFolder, WorkspaceFoldersChangeEvent } from 'vscode'
 import { NAMESPACE } from './constants'
-import { Repository, Ref, RefType, Git } from './git/git'
+import { Repository, Git } from './git/git'
+import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { toGitUri } from './git/uri'
 import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
-import { openSync } from 'fs';
 
 class FileElement implements IDiffStatus {
     constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
@@ -617,7 +617,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             preview: preview
         };
         const filename = path.basename(absPath);
-        await commands.executeCommand('vscode.diff',
+        return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
     }
 
@@ -701,7 +701,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (this.baseRef === baseRef) {
             return;
         }
-        window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async p => {
+        window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async _ => {
             try {
                 await this.updateRefs(baseRef);
             } catch (e) {
@@ -728,7 +728,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async manualRefresh() {
-        window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async p => {
+        window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async _ => {
             try {
                 if (await this.isHeadChanged()) {
                     // make sure merge base is updated when switching branches

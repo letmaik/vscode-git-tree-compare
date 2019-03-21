@@ -2,7 +2,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
-import { findGit, Git, Repository, Ref, Branch } from './git/git';
+import { findGit, Git, Repository } from './git/git';
+import { Ref, Branch } from './git/api/git';
 import { Askpass } from './git/askpass';
 import { denodeify } from './git/util';
 
@@ -160,9 +161,9 @@ async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,strin
     const packedRefsPath = path.join(absGitCommonDir, 'packed-refs');
     const content = await readFile(packedRefsPath, 'utf8');
     const regex = /^([0-9a-f]+) (.+)$/;
-    return new Map(content.split('\n')
+    return new Map((content.split('\n')
         .map(line => regex.exec(line))
-        .filter(g => !!g)
+        .filter(g => !!g) as RegExpExecArray[])
         .map((groups: RegExpExecArray) => [groups[2], groups[1]] as [string, string]));
 }
 
