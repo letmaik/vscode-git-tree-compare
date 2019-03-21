@@ -5,6 +5,7 @@
 * Refresh the index to avoid superfluous diff entries if file content is unchanged but modification date has changed [#37](https://github.com/letmaik/vscode-git-tree-compare/issues/37)
 * Added `refreshIndex` configuration option (default is enabled) to optionally disable the extra git invocation needed to refresh the index
 * Show full paths in tree item tooltips
+* Sort subfolders to match the explorer [#45](https://github.com/letmaik/vscode-git-tree-compare/issues/45)
 * Fixed various issues when adding/removing workspace folders
 
 ## 1.5.0
