@@ -230,7 +230,17 @@ const DST_MODE_OFFSET = 2 + MODE_LEN;
 const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
 const PATH_OFFSET = STATUS_OFFSET + 2;
 
-export async function diffIndex(repo: Repository, ref: string): Promise<IDiffStatus[]> {
+export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean): Promise<IDiffStatus[]> {
+    if (refreshIndex) {
+        // avoid superfluous diff entries if files only got touched
+        // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
+        try {
+            await repo.run(['update-index', '--refresh', '-q']);
+        } catch (e) {
+            // ignore errors as this is a bonus anyway
+        }
+    }
+
     // exceptions can happen with newly initialized repos without commits, or when git is busy
     let diffIndexResult = await repo.run(['diff-index', '--no-renames', ref, '--']);
     let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);

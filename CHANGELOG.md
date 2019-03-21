@@ -2,6 +2,8 @@
 
 * Added buttons for Open File, Open Changes, Change Base, Change Repository (if more than one workspace folder open), and Refresh (if auto refresh is disabled) [#46](https://github.com/letmaik/vscode-git-tree-compare/issues/46)
 * Scan for repositories in direct subfolders of workspace folders [#48](https://github.com/letmaik/vscode-git-tree-compare/issues/48)
+* Refresh the index to avoid superfluous diff entries if file content is unchanged but modification date has changed [#37](https://github.com/letmaik/vscode-git-tree-compare/issues/37)
+* Added `refreshIndex` configuration option (default is enabled) to optionally disable the extra git invocation needed to refresh the index
 * Show full paths in tree item tooltips
 * Fixed various issues when adding/removing workspace folders
 

@@ -79,6 +79,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
     private autoRefresh: boolean;
+    private refreshIndex: boolean;
     private iconsMinimal: boolean;
     private fullDiff: boolean;
 
@@ -222,11 +223,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.includeFilesOutsideWorkspaceFolderRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
+        this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.fullDiff = config.get<string>('diffMode') === 'full';
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
+        // FIXME this should be per-repo, not workspace
         let baseRef = this.workspaceState.get<string>('baseRef_' + this.workspaceFolder.name);
         if (baseRef) {
             if (await this.isRefExisting(baseRef)) {
@@ -371,7 +374,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        let diff = await diffIndex(this.repository!, this.mergeBase);
+        let diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex);
         this.log(`${diff.length} diff entries`);
 
         for (const entry of diff) {
@@ -541,6 +544,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldInclude = this.includeFilesOutsideWorkspaceFolderRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
+        const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
         const oldFullDiff = this.fullDiff;
         this.readConfig();
@@ -549,6 +553,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
             oldIconsMinimal != this.iconsMinimal ||
             (!oldAutoRefresh && this.autoRefresh) ||
+            (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff) {
 
             if (!this.repository) {
@@ -559,7 +564,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.updateTreeRootFolder();
             }
             
-            if (oldFullDiff != this.fullDiff) {
+            if (oldFullDiff != this.fullDiff || 
+                (!oldAutoRefresh && this.autoRefresh) ||
+                (!oldRefreshIndex && this.refreshIndex)) {
                 await this.updateRefs(this.baseRef);
                 await this.updateDiff(false);
             }

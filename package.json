@@ -245,6 +245,11 @@
                     "description": "Whether to refresh the tree whenever a file in the workspace changes.",
                     "default": true
                 },
+                "gitTreeCompare.refreshIndex": {
+                    "type": "boolean",
+                    "description": "Whether to refresh the git index each time the tree is refreshed. This avoids superfluous diff entries for cases when only the file modification date is changed, at the cost of an extra git invocation.",
+                    "default": true
+                },
                 "gitTreeCompare.openChanges": {
                     "type": "boolean",
                     "description": "When selecting a modified file in the tree, whether to show its changes or just open the workspace file.",
