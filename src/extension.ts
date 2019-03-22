@@ -88,7 +88,7 @@ export function activate(context: ExtensionContext) {
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
-        provider = new GitTreeCompareProvider(git, outputChannel, context.globalState);
+        provider = new GitTreeCompareProvider(git, outputChannel, context.globalState, context.asAbsolutePath);
 
         // use arbitrary repository at start if there are multiple
         const gitRepos = await getGitRepositoryFolders(git);

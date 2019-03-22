@@ -103,7 +103,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private readonly disposables: Disposable[] = [];
 
-    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly globalState: Memento) {
+    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
+                private readonly asAbsolutePath: (relPath: string) => string) {
         this.readConfig();
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
 
@@ -252,7 +253,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     getTreeItem(element: Element): TreeItem {
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.asAbsolutePath);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -758,8 +759,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 }
 
-function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean): TreeItem {
-    const iconRoot = path.join(__dirname, '..', '..', 'resources', 'icons');
+function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
+                    asAbsolutePath: (relPath: string) => string): TreeItem {
+    const iconRoot = asAbsolutePath('resources/icons');
+    console.log(iconRoot);
     if (element instanceof FileElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label);

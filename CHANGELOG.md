@@ -1,3 +1,7 @@
+## 1.6.1
+
+* Fixed icons not displaying
+
 ## 1.6.0
 
 * Added buttons for Open File, Open Changes, Change Base, Change Repository (if more than one workspace folder open), and Refresh (if auto refresh is disabled) [#46](https://github.com/letmaik/vscode-git-tree-compare/issues/46)
