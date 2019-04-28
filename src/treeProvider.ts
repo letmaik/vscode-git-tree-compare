@@ -232,7 +232,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private async getStoredBaseRef(): Promise<string | undefined> {
         let baseRef = this.globalState.get<string>('baseRef_' + this.repoRoot);
         if (baseRef) {
-            if (await this.isRefExisting(baseRef)) {
+            if (await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef)) {
                 this.log('Using stored base ref: ' + baseRef);
             } else {
                 this.log('Not using non-existant stored base ref: ' + baseRef);
@@ -246,6 +246,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const refs = await this.repository!.getRefs();
         const exists = refs.some(ref => ref.name === refName);
         return exists;
+    }
+
+    private async isCommitExisting(id: string): Promise<boolean> {
+        try {
+            await this.repository!.getCommit(id);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     private updateStoredBaseRef(baseRef: string) {
@@ -299,7 +308,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const headName = HEAD.name;
             const headCommit = HEAD.commit || await getBranchCommit(this.absGitCommonDir, HEAD.name!);
             if (baseRef) {
-                const exists = await this.isRefExisting(baseRef);
+                const exists = await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef);
                 if (!exists) {
                     // happens when branch was deleted
                     baseRef = undefined;
