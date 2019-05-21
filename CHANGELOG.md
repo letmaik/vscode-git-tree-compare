@@ -1,3 +1,8 @@
+## 1.7.0
+
+* Added Open All Changes & Open Changed Files at folder level [#49](https://github.com/letmaik/vscode-git-tree-compare/issues/49)
+* Fixed custom commit as base not working [#50](https://github.com/letmaik/vscode-git-tree-compare/issues/50)
+
 ## 1.6.1
 
 * Fixed icons not displaying
