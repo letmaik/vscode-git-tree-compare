@@ -631,8 +631,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             left, right, filename + " (Working Tree)", options);
     }
 
-    openAllChanges() {
-        for (let file of this.iterFiles()) {
+    openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
+        const withinFolder = entry instanceof FolderElement ? entry.absPath : undefined;
+        for (const file of this.iterFiles(withinFolder)) {
             this.doOpenChanges(file.absPath, file.status, false);
         }
     }
@@ -651,8 +652,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return commands.executeCommand('vscode.open', uri, options);
     }
 
-    openChangedFiles() {
-        for (let file of this.iterFiles()) {
+    openChangedFiles(entry: RefElement | RepoRootElement | FolderElement | undefined) {
+        const withinFolder = entry instanceof FolderElement ? entry.absPath : undefined;
+        for (const file of this.iterFiles(withinFolder)) {
             if (file.status == 'D') {
                 continue;
             }
@@ -660,9 +662,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    *iterFiles() {
+    *iterFiles(withinFolder: string | undefined) {
         for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
-            for (let files of filesMap.values()) {
+            for (let [folder, files] of filesMap.entries()) {
+                if (withinFolder && !folder.startsWith(withinFolder)) {
+                    continue;
+                }
                 for (let file of files) {
                     if (!file.isSubmodule) {
                         yield file;

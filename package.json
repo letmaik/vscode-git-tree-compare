@@ -214,8 +214,16 @@
                     "when": "view == gitTreeCompare && viewItem == ref"
                 },
                 {
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == folder"
+                },
+                {
                     "command": "gitTreeCompare.openChangedFiles",
                     "when": "view == gitTreeCompare && viewItem == ref"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
+                    "when": "view == gitTreeCompare && viewItem == folder"
                 },
                 {
                     "command": "gitTreeCompare.openAllChanges",
@@ -223,8 +231,18 @@
                     "group": "inline"
                 },
                 {
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == folder",
+                    "group": "inline"
+                },
+                {
                     "command": "gitTreeCompare.openChangedFiles",
                     "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "inline"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
+                    "when": "view == gitTreeCompare && viewItem == folder",
                     "group": "inline"
                 },
                 {

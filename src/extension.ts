@@ -70,11 +70,11 @@ export function activate(context: ExtensionContext) {
             });
         });
     });
-    commands.registerCommand(NAMESPACE + '.openAllChanges', () => {
-        runAfterInit(() => provider!.openAllChanges());
+    commands.registerCommand(NAMESPACE + '.openAllChanges', node => {
+        runAfterInit(() => provider!.openAllChanges(node));
     });
-    commands.registerCommand(NAMESPACE + '.openChangedFiles', () => {
-        runAfterInit(() => provider!.openChangedFiles());
+    commands.registerCommand(NAMESPACE + '.openChangedFiles', node => {
+        runAfterInit(() => provider!.openChangedFiles(node));
     });
     commands.registerCommand(NAMESPACE + '.switchToFullDiff', () => {
         runAfterInit(() => provider!.switchToFullDiff());
