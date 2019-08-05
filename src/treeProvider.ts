@@ -383,8 +383,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        let diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex);
-        this.log(`${diff.length} diff entries`);
+        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex);
+        const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
+        this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
         for (const entry of diff) {
             const folder = path.dirname(entry.absPath);
@@ -412,6 +413,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         // determine folders in the old diff which have changed entries and fire change events
         const minDirtyFolders: string[] = [];
+        let doFullRefresh = false;
         if (fireChangeEvents) {
             const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
                 const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
@@ -433,9 +435,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const treeRootChanged = !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
             const mustAddOrRemoveRepoRootElement = !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
             if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
-                // full refresh
-                this.loadedFolderElements.clear();
-                this._onDidChangeTreeData.fire();
+                doFullRefresh = true;
             } else {
                 // collect all folders which had direct changes (not in subfolders)
                 const dirtyFoldersInsideTreeRoot: string[] = [];
@@ -482,17 +482,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
         if (fireChangeEvents) {
-            if (minDirtyFolders.length) {
-                this.log('Tree changes:');
+            if (doFullRefresh) {
+                this.log('Full tree refresh')
+                this.loadedFolderElements.clear();
+                this._onDidChangeTreeData.fire();
             } else {
-                this.log('No tree changes');
-            }
-            // send events to trigger tree refresh
-            for (const dirtyFolder of minDirtyFolders) {
-                this.log('  ' + path.relative(this.repoRoot, dirtyFolder));
-                const element = this.loadedFolderElements.get(dirtyFolder);
-                assert(element !== undefined)
-                this._onDidChangeTreeData.fire(element);
+                if (minDirtyFolders.length) {
+                    this.log('Tree changes:');
+                } else {
+                    this.log('No tree changes');
+                }
+                // send events to trigger tree refresh
+                for (const dirtyFolder of minDirtyFolders) {
+                    this.log('  ' + path.relative(this.repoRoot, dirtyFolder));
+                    const element = this.loadedFolderElements.get(dirtyFolder);
+                    assert(element !== undefined)
+                    this._onDidChangeTreeData.fire(element);
+                }
             }
         }
     }
