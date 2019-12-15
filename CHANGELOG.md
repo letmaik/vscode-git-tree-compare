@@ -1,3 +1,7 @@
+## 1.7.1
+
+* Fixed issue opening diff view starting with VS Code 1.41.0 [#55](https://github.com/letmaik/vscode-git-tree-compare/issues/55)
+
 ## 1.7.0
 
 * Added Open All Changes & Open Changed Files at folder level [#49](https://github.com/letmaik/vscode-git-tree-compare/issues/49)
