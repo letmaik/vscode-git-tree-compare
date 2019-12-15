@@ -1,15 +1,9 @@
 import * as path from 'path';
-import * as fs from 'fs';
+import { promises as fs } from 'fs';
 
 import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
 import { findGit, Git, Repository } from './git/git';
 import { Ref, Branch } from './git/api/git';
-import { Askpass } from './git/askpass';
-import { denodeify } from './git/util';
-
-const readFile = denodeify<string>(fs.readFile);
-const stat = denodeify<fs.Stats>(fs.stat);
-const readdir = denodeify<string[]>(fs.readdir);
 
 async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
     const bits = await Promise.all(array.map(filter));
@@ -24,9 +18,7 @@ export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     const pathHint = workspace.getConfiguration('git').get<string>('path');
     const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
     outputChannel.appendLine(`Using git ${info.version} from ${info.path}`);
-    const askpass = new Askpass();
-    const env = await askpass.getEnv();
-    return new Git({ gitPath: info.path, version: info.version, env });
+    return new Git({ gitPath: info.path, version: info.version });
 }
 
 export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[] {
@@ -56,10 +48,10 @@ export async function getGitRepositoryFolders(git: Git): Promise<string[]> {
         let subfolders: string[] = [];
         for (const localFolder of localFolders) {
 			try {
-                let children = await readdir(localFolder);
+                let children = await fs.readdir(localFolder);
                 children = children.filter(child => child !== '.git');
                 children = children.map(child => path.join(localFolder, child));
-                children = await filterAsync(children, async child => (await stat(child)).isDirectory());
+                children = await filterAsync(children, async child => (await fs.stat(child)).isDirectory());
                 subfolders = subfolders.concat(children);
             } catch {
                 // ignore
@@ -131,7 +123,7 @@ export async function getDefaultBranch(repo: Repository, absGitCommonDir: string
     const symRefPath = path.join(absGitCommonDir, 'refs', 'remotes', remote, 'HEAD');
     let symRef: string;
     try {
-        symRef = await readFile(symRefPath, 'utf8');
+        symRef = await fs.readFile(symRefPath, 'utf8');
     } catch (e) {
         return;
     }
@@ -143,7 +135,7 @@ export async function getBranchCommit(absGitCommonDir: string, branchName: strin
     // a cheaper alternative to repo.getBranch()
     const refPathUnpacked = path.join(absGitCommonDir, 'refs', 'heads', branchName);
     try {
-        const commit = (await readFile(refPathUnpacked, 'utf8')).trim();
+        const commit = (await fs.readFile(refPathUnpacked, 'utf8')).trim();
         return commit;
     } catch (e) {
         const refs = await readPackedRefs(absGitCommonDir);
@@ -159,7 +151,7 @@ export async function getBranchCommit(absGitCommonDir: string, branchName: strin
 async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,string>> {
     // see https://git-scm.com/docs/git-pack-refs
     const packedRefsPath = path.join(absGitCommonDir, 'packed-refs');
-    const content = await readFile(packedRefsPath, 'utf8');
+    const content = await fs.readFile(packedRefsPath, 'utf8');
     const regex = /^([0-9a-f]+) (.+)$/;
     return new Map((content.split('\n')
         .map(line => regex.exec(line))
@@ -175,7 +167,7 @@ export async function getMergeBase(repo: Repository, headRef: string, baseRef: s
 
 export async function getHeadModificationDate(absGitDir: string): Promise<Date> {
     const headPath = path.join(absGitDir, 'HEAD');
-    const stats = await stat(headPath);
+    const stats = await fs.stat(headPath);
     return stats.mtime;
 }
 

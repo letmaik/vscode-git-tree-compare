@@ -122,7 +122,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async setRepository(repositoryRoot: string) {
-        this.repository = this.git.open(repositoryRoot);
+        const dotGit = await this.git.getRepositoryDotGit(repositoryRoot);
+        this.repository = this.git.open(repositoryRoot, dotGit);
         this.repoRoot = path.normalize(this.repository.root);
         this.absGitDir = await getAbsGitDir(this.repository);
         this.absGitCommonDir = await getAbsGitCommonDir(this.repository);

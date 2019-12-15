@@ -328,6 +328,7 @@
         "ts-loader": "^5.3.3",
         "typescript": "^3.3.1",
         "vscode": "^1.1.33",
+        "vscode-uri": "^2.0.0",
         "webpack": "^4.29.6",
         "webpack-cli": "^3.3.0"
     },
