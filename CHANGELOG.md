@@ -1,3 +1,7 @@
+## 1.7.2
+
+* Fixed issue opening diff view starting with VS Code 1.42.0 [#56](https://github.com/letmaik/vscode-git-tree-compare/issues/56)
+
 ## 1.7.1
 
 * Fixed issue opening diff view starting with VS Code 1.41.0 [#55](https://github.com/letmaik/vscode-git-tree-compare/issues/55)
