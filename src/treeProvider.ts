@@ -14,6 +14,7 @@ import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommi
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
+import { normalizePath } from './fsUtils';
 
 class FileElement implements IDiffStatus {
     constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
@@ -83,7 +84,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private iconsMinimal: boolean;
     private fullDiff: boolean;
 
-    private workspaceFolder: WorkspaceFolder;
+    private workspaceFolder: string;
     private repository: Repository | undefined;
     private absGitDir: string;
     private absGitCommonDir: string;
@@ -124,7 +125,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     async setRepository(repositoryRoot: string) {
         const dotGit = await this.git.getRepositoryDotGit(repositoryRoot);
         this.repository = this.git.open(repositoryRoot, dotGit);
-        this.repoRoot = path.normalize(this.repository.root);
+        this.repoRoot = normalizePath(this.repository.root);
         this.absGitDir = await getAbsGitDir(this.repository);
         this.absGitCommonDir = await getAbsGitCommonDir(this.repository);
         const workspaceFolders = getWorkspaceFolders(this.repoRoot);
@@ -136,7 +137,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         });
         // If repo appears in multiple workspace folders, pick the deepest one.
         // TODO let the user choose which one
-        this.workspaceFolder = workspaceFolders[0];
+        this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
         this.updateTreeRootFolder();
         this.log('Using repository: ' + this.repoRoot);
     }
@@ -181,7 +182,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // If the folder got removed that was currently active in the diff,
         // then pick an arbitrary new one.
         for (var removedFolder of e.removed) {
-            if (removedFolder.uri.toString() === this.workspaceFolder.uri.toString()) {
+            if (normalizePath(removedFolder.uri.fsPath) === this.workspaceFolder) {
                 const gitRepos = await getGitRepositoryFolders(this.git);
                 if (gitRepos.length > 0) {
                     const newFolder = gitRepos[0];
@@ -211,11 +212,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private updateTreeRootFolder() {
-        const repoIsWorkspaceSubfolder = this.repoRoot.startsWith(this.workspaceFolder.uri.fsPath + path.sep);
+        const repoIsWorkspaceSubfolder = this.repoRoot.startsWith(this.workspaceFolder + path.sep);
         if (this.treeRootIsRepo || repoIsWorkspaceSubfolder) {
             this.treeRoot = this.repoRoot;
         } else {
-            this.treeRoot = this.workspaceFolder.uri.fsPath;
+            this.treeRoot = this.workspaceFolder;
         }
     }
 

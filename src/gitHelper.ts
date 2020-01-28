@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
 import { findGit, Git, Repository } from './git/git';
 import { Ref, Branch } from './git/api/git';
+import { normalizePath } from './fsUtils';
 
 async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
     const bits = await Promise.all(array.map(filter));
@@ -22,14 +23,16 @@ export async function createGit(outputChannel: OutputChannel): Promise<Git> {
 }
 
 export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[] {
-    const normRepoFolder = path.normalize(repositoryFolder);
+    const normRepoFolder = normalizePath(repositoryFolder);
     const allWorkspaceFolders = workspace.workspaceFolders || [];
-    const workspaceFolders = allWorkspaceFolders.filter(ws =>
-        ws.uri.fsPath === normRepoFolder ||
-        // workspace folder is subfolder of repository (or equal)
-        ws.uri.fsPath.startsWith(normRepoFolder + path.sep) ||
-        // repository is subfolder of workspace folder
-        normRepoFolder.startsWith(ws.uri.fsPath + path.sep));
+    const workspaceFolders = allWorkspaceFolders.filter(ws => {
+        const normWsFolder = normalizePath(ws.uri.fsPath);
+        return normWsFolder === normRepoFolder ||
+            // workspace folder is subfolder of repository (or equal)
+            normWsFolder.startsWith(normRepoFolder + path.sep) ||
+            // repository is subfolder of workspace folder
+            normRepoFolder.startsWith(normWsFolder + path.sep);
+    });
     if (workspaceFolders.length == 0) {
         throw new Error(`Could not find any workspace folder for ${normRepoFolder} ` +
             `in ${allWorkspaceFolders.map(f => f.uri.fsPath)}`);
@@ -197,8 +200,8 @@ class DiffStatus implements IDiffStatus {
     readonly absPath: string;
     readonly isSubmodule: boolean;
 
-    constructor(repo: Repository, public status: StatusCode, relPath: string, srcMode: string, dstMode: string) {
-        this.absPath = path.join(repo.root, relPath);
+    constructor(repoRoot: string, public status: StatusCode, relPath: string, srcMode: string, dstMode: string) {
+        this.absPath = path.join(repoRoot, relPath);
         this.isSubmodule = srcMode == MODE_SUBMODULE || dstMode == MODE_SUBMODULE;
     }
 }
@@ -238,10 +241,11 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     let diffIndexResult = await repo.run(['diff-index', '--no-renames', ref, '--']);
     let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
 
+    const repoRoot = normalizePath(repo.root);
     const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
         .filter(line => !!line)
         .map(line =>
-            new DiffStatus(repo,
+            new DiffStatus(repoRoot,
                 sanitizeStatus(line[STATUS_OFFSET]),
                 line.substr(PATH_OFFSET).trim(),
                 line.substr(SRC_MODE_OFFSET, MODE_LEN),
@@ -251,7 +255,7 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
 
     const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
         .filter(line => !!line)
-        .map(line => new DiffStatus(repo, 'U' as 'U', line, MODE_EMPTY, MODE_REGULAR_FILE));
+        .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, MODE_EMPTY, MODE_REGULAR_FILE));
     
     const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.absPath))
 
