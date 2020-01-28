@@ -1,3 +1,7 @@
+## 1.7.3
+
+* Fixed path normalisation issue on Windows [#57](https://github.com/letmaik/vscode-git-tree-compare/issues/57)
+
 ## 1.7.2
 
 * Fixed issue opening diff view starting with VS Code 1.42.0 [#56](https://github.com/letmaik/vscode-git-tree-compare/issues/56)
