@@ -4,7 +4,7 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, WorkspaceFolder, WorkspaceFoldersChangeEvent } from 'vscode'
+         workspace, commands, window, WorkspaceFoldersChangeEvent } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
