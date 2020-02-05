@@ -2,16 +2,14 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 
 import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
-import { findGit, Git, Repository } from './git/git';
+import { Git, Repository } from './git/git';
 import { Ref, Branch } from './git/api/git';
 import { normalizePath } from './fsUtils';
 import { API as GitAPI } from './typings/git';
 
-export async function createGit(outputChannel: OutputChannel): Promise<Git> {
-    const pathHint = workspace.getConfiguration('git').get<string>('path');
-    const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
-    outputChannel.appendLine(`Using git ${info.version} from ${info.path}`);
-    return new Git({ gitPath: info.path, version: info.version });
+export async function createGit(gitApi: GitAPI, outputChannel: OutputChannel): Promise<Git> {
+    outputChannel.appendLine(`Using git from ${gitApi.git.path}`);
+    return new Git({ gitPath: gitApi.git.path, version: '' });
 }
 
 export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[] {

@@ -87,7 +87,7 @@ export function activate(context: ExtensionContext) {
         runAfterInit(() => provider!.switchToMergeDiff());
     });
 
-    createGit(outputChannel).then(async git => {
+    createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
