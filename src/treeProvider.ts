@@ -107,11 +107,18 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
                 private readonly asAbsolutePath: (relPath: string) => string) {
         this.readConfig();
+    }
+
+    async init() {
+        // use arbitrary repository at start if there are multiple
+        const gitRepos = getGitRepositoryFolders(this.gitApi);
+        if (gitRepos.length > 0) {
+            await this.changeRepository(gitRepos[0]);
+        }
+
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
-
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
-
-        this.disposables.push(gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
+        this.disposables.push(this.gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
 
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
@@ -122,25 +129,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const onRelevantWorkspaceChange = anyEvent(onNonGitChange, onGitRefsChange);
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
-
-        // use arbitrary repository at start if there are multiple
-        const gitRepos = getGitRepositoryFolders(gitApi);
-        if (gitRepos.length > 0) {
-            this.setRepository(gitRepos[0]);
-        }
     }
 
     async setRepository(repositoryRoot: string) {
         const dotGit = await this.git.getRepositoryDotGit(repositoryRoot);
-        this.repository = this.git.open(repositoryRoot, dotGit);
-        this.repoRoot = normalizePath(this.repository.root);
-        this.absGitDir = await getAbsGitDir(this.repository);
-        this.absGitCommonDir = await getAbsGitCommonDir(this.repository);
-        const workspaceFolders = getWorkspaceFolders(this.repoRoot);
+        const repository = this.git.open(repositoryRoot, dotGit);
+        const absGitDir = await getAbsGitDir(repository);
+        const absGitCommonDir = await getAbsGitCommonDir(repository);
+        const repoRoot = normalizePath(repository.root);
 
+        const workspaceFolders = getWorkspaceFolders(repoRoot);
         if (workspaceFolders.length == 0) {
             throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
         }
+
+        this.repository = repository;
+        this.absGitCommonDir = absGitCommonDir;
+        this.absGitDir = absGitDir;
+        this.repoRoot = repoRoot;
 
         // Sort descending by folder depth
         workspaceFolders.sort((a, b) => {
@@ -193,7 +199,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private async handleRepositoryOpened(repository: GitAPIRepository) {
         if (this.repository === undefined) {
-            await this.setRepository(repository.rootUri.fsPath);
+            await this.changeRepository(repository.rootUri.fsPath);
         }
     }
 
@@ -453,8 +459,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 return !sortedArraysEqual(oldItems, newItems);
             }
 
-            const treeRootChanged = !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
-            const mustAddOrRemoveRepoRootElement = !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
+            const treeRootChanged = !this.filesInsideTreeRoot || !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
+            const mustAddOrRemoveRepoRootElement = !this.filesOutsideTreeRoot || !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
             if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
                 doFullRefresh = true;
             } else {
@@ -803,7 +809,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const iconRoot = asAbsolutePath('resources/icons');
-    console.log(iconRoot);
     if (element instanceof FileElement) {
         const label = path.basename(element.absPath);
         const item = new TreeItem(label);

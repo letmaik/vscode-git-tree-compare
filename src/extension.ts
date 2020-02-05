@@ -94,6 +94,8 @@ export function activate(context: ExtensionContext) {
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
+        provider.init();
+
         treeView = window.createTreeView(
             NAMESPACE,
             {treeDataProvider: provider}
