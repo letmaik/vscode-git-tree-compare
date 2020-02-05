@@ -15,7 +15,7 @@ import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommi
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
-import { API as GitAPI } from './typings/git';
+import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
 class FileElement implements IDiffStatus {
     constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
@@ -112,6 +112,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
 
+        this.disposables.push(gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
+
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
 
@@ -121,6 +123,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const onRelevantWorkspaceChange = anyEvent(onNonGitChange, onGitRefsChange);
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
+
+        // use arbitrary repository at start if there are multiple
+        const gitRepos = getGitRepositoryFolders(gitApi);
+        if (gitRepos.length > 0) {
+            this.setRepository(gitRepos[0]);
+        }
     }
 
     async setRepository(repositoryRoot: string) {
@@ -130,6 +138,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.absGitDir = await getAbsGitDir(this.repository);
         this.absGitCommonDir = await getAbsGitCommonDir(this.repository);
         const workspaceFolders = getWorkspaceFolders(this.repoRoot);
+
+        if (workspaceFolders.length == 0) {
+            throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
+        }
+
         // Sort descending by folder depth
         workspaceFolders.sort((a, b) => {
             const aDepth = a.uri.fsPath.split(path.sep).length;
@@ -177,6 +190,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         await this.changeRepository(choice.repositoryRoot);
+    }
+
+    private async handleRepositoryOpened(repository: GitAPIRepository) {
+        if (this.repository === undefined) {
+            await this.setRepository(repository.rootUri.fsPath);
+        }
     }
 
     private async handleWorkspaceFoldersChanged(e: WorkspaceFoldersChangeEvent) {

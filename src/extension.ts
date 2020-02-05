@@ -2,7 +2,7 @@ import { ExtensionContext, workspace, window, Disposable, commands, TreeView, ex
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider, Element } from './treeProvider';
-import { createGit, getGitRepositoryFolders } from './gitHelper';
+import { createGit } from './gitHelper';
 import { toDisposable } from './git/util';
 import { GitExtension } from './typings/git';
 
@@ -93,12 +93,6 @@ export function activate(context: ExtensionContext) {
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
-
-        // use arbitrary repository at start if there are multiple
-        const gitRepos = await getGitRepositoryFolders(gitApi);
-        if (gitRepos.length > 0) {
-            await provider.setRepository(gitRepos[0]);
-        }
 
         treeView = window.createTreeView(
             NAMESPACE,

@@ -7,15 +7,6 @@ import { Ref, Branch } from './git/api/git';
 import { normalizePath } from './fsUtils';
 import { API as GitAPI } from './typings/git';
 
-async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
-    const bits = await Promise.all(array.map(filter));
-    return array.filter(_ => bits.shift());
-}
-
-async function mapAsync<I,O>(array: I[], map: (entry: I) => Promise<O>) {
-    return await Promise.all(array.map(map));
-}
-
 export async function createGit(outputChannel: OutputChannel): Promise<Git> {
     const pathHint = workspace.getConfiguration('git').get<string>('path');
     const info = await findGit(pathHint, path => outputChannel.appendLine("Looking for git in: " + path));
@@ -34,16 +25,12 @@ export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[]
             // repository is subfolder of workspace folder
             normRepoFolder.startsWith(normWsFolder + path.sep);
     });
-    if (workspaceFolders.length == 0) {
-        throw new Error(`Could not find any workspace folder for ${normRepoFolder} ` +
-            `in ${allWorkspaceFolders.map(f => f.uri.fsPath)}`);
-    }
     return workspaceFolders;
 }
 
-export async function getGitRepositoryFolders(git: GitAPI): Promise<string[]> {
+export function getGitRepositoryFolders(git: GitAPI): string[] {
     const repos = git.repositories;
-    const rootPaths = repos.map(r => r.rootUri.fsPath);
+    const rootPaths = repos.map(r => r.rootUri.fsPath).filter(p => getWorkspaceFolders(p).length > 0);
     return rootPaths;
 }
 
