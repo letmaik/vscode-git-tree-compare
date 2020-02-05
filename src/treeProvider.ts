@@ -9,7 +9,6 @@ import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
-import { toGitUri } from './git/uri'
 import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
@@ -642,7 +641,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async doOpenChanges(absPath: string, status: StatusCode, preview=true) {
         const right = Uri.file(absPath);
-        const left = toGitUri(right, this.mergeBase);
+        const left = this.gitApi.toGitUri(right, this.mergeBase);
 
         if (status === 'U' || status === 'A') {
             return commands.executeCommand('vscode.open', right);
@@ -672,7 +671,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async doOpenFile(absPath: string, status: StatusCode, preview=false) {
         const right = Uri.file(absPath);
-        const left = toGitUri(right, this.mergeBase);
+        const left = this.gitApi.toGitUri(right, this.mergeBase);
         const uri = status === 'D' ? left : right;
         const options: TextDocumentShowOptions = {
             preview: preview
