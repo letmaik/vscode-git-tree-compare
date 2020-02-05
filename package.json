@@ -43,6 +43,9 @@
         "onCommand:gitTreeCompare.switchToFullDiff",
         "onCommand:gitTreeCompare.switchToMergeDiff"
     ],
+    "extensionDependencies": [
+        "vscode.git"
+    ],
     "main": "./dist/extension",
     "contributes": {
         "views": {

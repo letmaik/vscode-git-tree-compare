@@ -5,6 +5,7 @@ import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
 import { findGit, Git, Repository } from './git/git';
 import { Ref, Branch } from './git/api/git';
 import { normalizePath } from './fsUtils';
+import { API as GitAPI } from './typings/git';
 
 async function filterAsync<T>(array: T[], filter: (entry: T) => Promise<boolean>) {
     const bits = await Promise.all(array.map(filter));
@@ -40,39 +41,10 @@ export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[]
     return workspaceFolders;
 }
 
-export async function getGitRepositoryFolders(git: Git): Promise<string[]> {
-    const workspaceFolders = workspace.workspaceFolders || [];
-    let localFolders = workspaceFolders.filter(w => w.uri.scheme === 'file').map(w => w.uri.fsPath);
-
-    const config = workspace.getConfiguration('git');
-    const autoRepositoryDetection = config.get<boolean | 'subFolders' | 'openEditors'>('autoRepositoryDetection');
-
-    if (autoRepositoryDetection === true || autoRepositoryDetection === 'subFolders') {
-        let subfolders: string[] = [];
-        for (const localFolder of localFolders) {
-			try {
-                let children = await fs.readdir(localFolder);
-                children = children.filter(child => child !== '.git');
-                children = children.map(child => path.join(localFolder, child));
-                children = await filterAsync(children, async child => (await fs.stat(child)).isDirectory());
-                subfolders = subfolders.concat(children);
-            } catch {
-                // ignore
-            }
-        }
-        localFolders = localFolders.concat(subfolders);
-    }
-
-    const localPossibleGitFolders = await mapAsync(localFolders, async folder => {
-        try {
-            return await git.getRepositoryRoot(folder);
-        } catch {
-            return undefined;
-        }
-    });
-    const localGitFolders = localPossibleGitFolders.filter(f => f) as string[];
-    const localUniqueGitFolders = [...new Set(localGitFolders)];
-    return localUniqueGitFolders;
+export async function getGitRepositoryFolders(git: GitAPI): Promise<string[]> {
+    const repos = git.repositories;
+    const rootPaths = repos.map(r => r.rootUri.fsPath);
+    return rootPaths;
 }
 
 export async function getAbsGitDir(repo: Repository): Promise<string> {

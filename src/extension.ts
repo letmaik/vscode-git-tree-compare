@@ -1,9 +1,10 @@
-import { ExtensionContext, workspace, window, Disposable, commands, TreeView } from 'vscode';
+import { ExtensionContext, workspace, window, Disposable, commands, TreeView, extensions } from 'vscode';
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider, Element } from './treeProvider';
 import { createGit, getGitRepositoryFolders } from './gitHelper';
 import { toDisposable } from './git/util';
+import { GitExtension } from './typings/git';
 
 export function activate(context: ExtensionContext) {
     const disposables: Disposable[] = [];
@@ -11,6 +12,9 @@ export function activate(context: ExtensionContext) {
 
     const outputChannel = window.createOutputChannel('Git Tree Compare');
     disposables.push(outputChannel);
+
+    const gitExt = extensions.getExtension<GitExtension>('vscode.git')!.exports;
+    const gitApi = gitExt.getAPI(1);
 
     let provider: GitTreeCompareProvider | null = null;
     let treeView: TreeView<Element> | null = null;
@@ -88,10 +92,10 @@ export function activate(context: ExtensionContext) {
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
-        provider = new GitTreeCompareProvider(git, outputChannel, context.globalState, context.asAbsolutePath);
+        provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
         // use arbitrary repository at start if there are multiple
-        const gitRepos = await getGitRepositoryFolders(git);
+        const gitRepos = await getGitRepositoryFolders(gitApi);
         if (gitRepos.length > 0) {
             await provider.setRepository(gitRepos[0]);
         }

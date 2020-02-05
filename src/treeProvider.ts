@@ -15,6 +15,7 @@ import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommi
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
+import { API as GitAPI } from './typings/git';
 
 class FileElement implements IDiffStatus {
     constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
@@ -104,7 +105,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private readonly disposables: Disposable[] = [];
 
-    constructor(private readonly git: Git, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
+    constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
                 private readonly asAbsolutePath: (relPath: string) => string) {
         this.readConfig();
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
@@ -165,7 +166,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     async promptChangeRepository() {
         // TODO cache repo folders to avoid delays
         //      better would be if we could fetch the open repos from the git extension directly
-        const gitRepos = await getGitRepositoryFolders(this.git);
+        const gitRepos = await getGitRepositoryFolders(this.gitApi);
         const gitReposWithoutCurrent = gitRepos.filter(w => this.repoRoot !== w);
         const picks = gitReposWithoutCurrent.map(r => new ChangeRepositoryItem(r));
         const placeHolder = 'Select a repository';
@@ -183,7 +184,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // then pick an arbitrary new one.
         for (var removedFolder of e.removed) {
             if (normalizePath(removedFolder.uri.fsPath) === this.workspaceFolder) {
-                const gitRepos = await getGitRepositoryFolders(this.git);
+                const gitRepos = await getGitRepositoryFolders(this.gitApi);
                 if (gitRepos.length > 0) {
                     const newFolder = gitRepos[0];
                     await this.changeRepository(newFolder);
@@ -195,7 +196,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // If no repository is selected but new folders were added,
         // then pick an arbitrary new one.
         if (!this.repository && e.added) {
-            const gitRepos = await getGitRepositoryFolders(this.git);
+            const gitRepos = await getGitRepositoryFolders(this.gitApi);
             if (gitRepos.length > 0) {
                 const newFolder = gitRepos[0];
                 await this.changeRepository(newFolder);
