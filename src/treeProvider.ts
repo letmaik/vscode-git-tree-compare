@@ -849,8 +849,8 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.id = 'root'
         if (!iconsMinimal) {
             item.iconPath = {
-                light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
-                dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+                light: path.join(iconRoot, 'light', 'folder-open-light.svg'),
+                dark: path.join(iconRoot, 'dark', 'folder-open-dark.svg')
             };
         }
         return item;
@@ -862,8 +862,8 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.id = element.absPath;
         if (!iconsMinimal) {
             item.iconPath = {
-                light: path.join(iconRoot, 'light', 'FolderOpen_16x.svg'),
-                dark: path.join(iconRoot, 'dark', 'FolderOpen_16x_inverse.svg')
+                light: path.join(iconRoot, 'light', 'folder-open-light.svg'),
+                dark: path.join(iconRoot, 'dark', 'folder-open-dark.svg')
             };
         }
         return item;
@@ -876,8 +876,8 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.id = 'ref'
         if (!iconsMinimal) {
             item.iconPath = {
-                light: path.join(iconRoot, 'light', 'git-compare.svg'),
-                dark: path.join(iconRoot, 'dark', 'git-compare.svg')
+                light: path.join(iconRoot, 'light', 'open-change.svg'),
+                dark: path.join(iconRoot, 'dark', 'open-change.svg')
             };
         }
         return item;
