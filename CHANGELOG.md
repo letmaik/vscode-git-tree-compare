@@ -1,3 +1,11 @@
+## 1.8.0
+
+* Updated icons
+* Show repository name in view title [#54](https://github.com/letmaik/vscode-git-tree-compare/issues/54)
+* Use git extension API to list available repositories [#58](https://github.com/letmaik/vscode-git-tree-compare/issues/58)
+* Avoid some unnecessary automatic refreshes
+* Fixed initialisation/timing issue [#57](https://github.com/letmaik/vscode-git-tree-compare/issues/57)
+
 ## 1.7.3
 
 * Fixed path normalisation issue on Windows [#57](https://github.com/letmaik/vscode-git-tree-compare/issues/57)
