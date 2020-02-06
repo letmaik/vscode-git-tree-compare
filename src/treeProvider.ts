@@ -128,7 +128,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.disposables.push(fsWatcher);
 
         const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
-        const onNonGitChange = filterEvent(onWorkspaceChange, uri => !/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path));
+        const onNonGitChange = filterEvent(onWorkspaceChange, uri => !/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path) && uri.scheme == 'file');
         const onGitRefsChange = filterEvent(onWorkspaceChange, uri => /\/\.git\/refs\//.test(uri.path));
 
         const onRelevantWorkspaceChange = anyEvent(onNonGitChange, onGitRefsChange);
@@ -561,16 +561,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     @debounce(2000)
-    private async handleWorkspaceChange(path: Uri) {
+    private async handleWorkspaceChange(uri: Uri) {
         if (!this.autoRefresh || !this.repository) {
+            return
+        }
+        // ignore changes outside of repo root
+        //  e.g. "c:\Users\..\AppData\Roaming\Code - Insiders\User\globalStorage"
+        const normPath = normalizePath(uri.fsPath);
+        if (!normPath.startsWith(this.repoRoot + path.sep)) {
             return
         }
         if (!window.state.focused) {
             const onDidFocusWindow = filterEvent(window.onDidChangeWindowState, e => e.focused);
             await eventToPromise(onDidFocusWindow);
-            this.handleWorkspaceChange(path);
+            this.handleWorkspaceChange(uri);
             return;
         }
+        this.log(`Relevant workspace change detected: ${uri.fsPath}`)
         if (await this.isHeadChanged()) {
             // make sure merge base is updated when switching branches
             try {
