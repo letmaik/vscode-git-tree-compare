@@ -4,7 +4,7 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, WorkspaceFoldersChangeEvent } from 'vscode'
+         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -73,6 +73,8 @@ type FolderAbsPath = string;
 
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
+    private treeView: TreeView<Element>
+
     private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
     readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
@@ -109,7 +111,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.readConfig();
     }
 
-    async init() {
+    async init(treeView: TreeView<Element>) {
+        this.treeView = treeView
+
         // use arbitrary repository at start if there are multiple
         const gitRepos = getGitRepositoryFolders(this.gitApi);
         if (gitRepos.length > 0) {
@@ -159,12 +163,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
         this.updateTreeRootFolder();
         this.log('Using repository: ' + this.repoRoot);
+
+        const repoName = path.basename(repoRoot);
+        this.treeView.title = `Git Tree Compare: ${repoName}`;
     }
 
     async unsetRepository() {
         this.repository = undefined;
         this._onDidChangeTreeData.fire();
         this.log('No repository selected');
+
+        this.treeView.title = 'Git Tree Compare';
     }
 
     async changeRepository(repositoryRoot: string) {
