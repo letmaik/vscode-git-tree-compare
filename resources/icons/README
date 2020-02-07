@@ -9,5 +9,5 @@ The open-change.svg, open-file.svg, and refresh.svg files in dark/ and light/ ar
 extensions/git/resources/icons/{dark,light} folders within the Microsoft/vscode
 GitHub repository, see https://github.com/Microsoft/vscode/tree/master/extensions/git/resources/icons.
 
-The git-branch.svg, and repo.svg files in dark/ and light/ are from the Octicons set,
-see https://octicons.github.com/.
+The repo.svg and source-control.svg files in dark/ and light/ are unmodified (except color change) copies from the VS Code Codicons set,
+see https://github.com/microsoft/vscode-codicons.

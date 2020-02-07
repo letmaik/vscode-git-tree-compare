@@ -114,8 +114,8 @@
                 "command": "gitTreeCompare.changeBase",
                 "title": "Change Base...",
                 "icon": {
-                    "dark": "resources/icons/dark/git-branch.svg",
-                    "light": "resources/icons/light/git-branch.svg"
+                    "dark": "resources/icons/dark/source-control.svg",
+                    "light": "resources/icons/light/source-control.svg"
                 },
                 "category": "Git Tree Compare"
             },
