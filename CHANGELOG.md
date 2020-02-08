@@ -1,3 +1,7 @@
+## 1.8.1
+
+* Use [built-in VS Code icons](https://github.com/microsoft/vscode-codicons) instead of bundling copies
+
 ## 1.8.0
 
 * Updated icons
