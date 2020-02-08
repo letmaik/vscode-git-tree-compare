@@ -68,64 +68,43 @@
             {
                 "command": "gitTreeCompare.changeRepository",
                 "title": "Change Repository...",
-                "icon": {
-                    "dark": "resources/icons/dark/repo.svg",
-                    "light": "resources/icons/light/repo.svg"
-                },
+                "icon": "$(repo)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openChanges",
                 "title": "Open Changes",
-                "icon": {
-                    "dark": "resources/icons/dark/open-change.svg",
-                    "light": "resources/icons/light/open-change.svg"
-                },
+                "icon": "$(git-compare)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openFile",
                 "title": "Open File",
-                "icon": {
-                    "dark": "resources/icons/dark/open-file.svg",
-                    "light": "resources/icons/light/open-file.svg"
-                },
+                "icon": "$(go-to-file)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openAllChanges",
                 "title": "Open All Changes",
-                "icon": {
-                    "dark": "resources/icons/dark/open-change.svg",
-                    "light": "resources/icons/light/open-change.svg"
-                },
+                "icon": "$(git-compare)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.openChangedFiles",
                 "title": "Open Changed Files",
-                "icon": {
-                    "dark": "resources/icons/dark/open-file.svg",
-                    "light": "resources/icons/light/open-file.svg"
-                },
+                "icon": "$(go-to-file)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.changeBase",
                 "title": "Change Base...",
-                "icon": {
-                    "dark": "resources/icons/dark/source-control.svg",
-                    "light": "resources/icons/light/source-control.svg"
-                },
+                "icon": "$(git-branch)",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.refresh",
                 "title": "Refresh",
-                "icon": {
-                    "dark": "resources/icons/dark/refresh.svg",
-                    "light": "resources/icons/light/refresh.svg"
-                },
+                "icon": "$(refresh)",
                 "category": "Git Tree Compare"
             },
             {
@@ -326,7 +305,7 @@
         "@types/byline": "4.2.31",
         "@types/file-type": "5.2.1",
         "@types/node": "^13.5.0",
-        "@types/vscode": "^1.41.0",
+        "@types/vscode": "^1.42.0",
         "@types/which": "^1.0.28",
         "ts-loader": "^5.3.3",
         "typescript": "^3.3.1",

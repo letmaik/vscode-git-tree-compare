@@ -4,7 +4,7 @@ import * as path from 'path'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView } from 'vscode'
+         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -848,10 +848,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = 'root';
         item.id = 'root'
         if (!iconsMinimal) {
-            item.iconPath = {
-                light: path.join(iconRoot, 'light', 'folder-open-light.svg'),
-                dark: path.join(iconRoot, 'dark', 'folder-open-dark.svg')
-            };
+            item.iconPath = new ThemeIcon('folder-opened');
         }
         return item;
     } else if (element instanceof FolderElement) {
@@ -861,10 +858,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = 'folder';
         item.id = element.absPath;
         if (!iconsMinimal) {
-            item.iconPath = {
-                light: path.join(iconRoot, 'light', 'folder-open-light.svg'),
-                dark: path.join(iconRoot, 'dark', 'folder-open-dark.svg')
-            };
+            item.iconPath = new ThemeIcon('folder-opened');
         }
         return item;
     } else if (element instanceof RefElement) {
@@ -875,10 +869,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = 'ref';
         item.id = 'ref'
         if (!iconsMinimal) {
-            item.iconPath = {
-                light: path.join(iconRoot, 'light', 'open-change.svg'),
-                dark: path.join(iconRoot, 'dark', 'open-change.svg')
-            };
+            item.iconPath = new ThemeIcon('git-compare');
         }
         return item;
     }
