@@ -1,3 +1,8 @@
+## 1.9.0
+
+* Removed `location` setting as VS Code 1.43 now allows moving views freely
+* Fixed "Bad progress location" error [#51](https://github.com/letmaik/vscode-git-tree-compare/issues/51)
+
 ## 1.8.1
 
 * Use [built-in VS Code icons](https://github.com/microsoft/vscode-codicons) instead of bundling copies
