@@ -29,7 +29,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.42.1"
+        "vscode": "^1.43.0"
     },
     "activationEvents": [
         "onView:gitTreeCompare",
@@ -53,14 +53,7 @@
                 {
                     "id": "gitTreeCompare",
                     "name": "Git Tree Compare",
-                    "when": "config.git.enabled && gitOpenRepositoryCount != 0 && config.gitTreeCompare.location == scm"
-                }
-            ],
-            "explorer": [
-                {
-                    "id": "gitTreeCompare",
-                    "name": "Git Tree Compare",
-                    "when": "config.git.enabled && gitOpenRepositoryCount != 0 && config.gitTreeCompare.location == explorer"
+                    "when": "config.git.enabled && gitOpenRepositoryCount != 0"
                 }
             ]
         },
@@ -282,15 +275,6 @@
                     "type": "boolean",
                     "description": "Whether to use a compact icon alignment (like Seti file icon theme) where only files have icons.",
                     "default": false
-                },
-                "gitTreeCompare.location": {
-                    "type": "string",
-                    "enum": [
-                        "explorer",
-                        "scm"
-                    ],
-                    "description": "The location where the tree view should be displayed.",
-                    "default": "scm"
                 }
             }
         }
