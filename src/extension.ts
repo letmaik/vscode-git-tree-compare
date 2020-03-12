@@ -43,35 +43,19 @@ export function activate(context: ExtensionContext) {
         }
     }
 
-    let showCollapsedHint = () => {
-        if (!treeView!.visible) {
-            const config = workspace.getConfiguration(NAMESPACE);
-            const location = config.get<string>('location');
-            const tab = location === 'scm' ? 'Source Control' : 'Explorer';
-            window.showInformationMessage('Git Tree Compare is hidden! ' +
-                `Look for it in the ${tab} tab.`)
-        }
-    }
-
     commands.registerCommand(NAMESPACE + '.changeRepository', () => {
         runAfterInit(() => {
-            provider!.promptChangeRepository().then(() => {
-                showCollapsedHint();
-            });
+            provider!.promptChangeRepository();
         });
     });
     commands.registerCommand(NAMESPACE + '.changeBase', () => {
         runAfterInit(() => {
-            provider!.promptChangeBase().then(() => {
-                showCollapsedHint();
-            });
+            provider!.promptChangeBase();
         });
     });
     commands.registerCommand(NAMESPACE + '.refresh', () => {
         runAfterInit(() => {
-            provider!.manualRefresh().then(() => {
-                showCollapsedHint();
-            });
+            provider!.manualRefresh();
         });
     });
     commands.registerCommand(NAMESPACE + '.openAllChanges', node => {
