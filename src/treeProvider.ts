@@ -191,9 +191,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async promptChangeRepository() {
-        // TODO cache repo folders to avoid delays
-        //      better would be if we could fetch the open repos from the git extension directly
-        const gitRepos = await getGitRepositoryFolders(this.gitApi);
+        const gitRepos = getGitRepositoryFolders(this.gitApi);
         const gitReposWithoutCurrent = gitRepos.filter(w => this.repoRoot !== w);
         const picks = gitReposWithoutCurrent.map(r => new ChangeRepositoryItem(r));
         const placeHolder = 'Select a repository';
