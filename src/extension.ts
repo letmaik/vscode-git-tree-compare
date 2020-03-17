@@ -1,4 +1,4 @@
-import { ExtensionContext, workspace, window, Disposable, commands, TreeView, extensions } from 'vscode';
+import { ExtensionContext, window, Disposable, commands, TreeView, extensions } from 'vscode';
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider, Element } from './treeProvider';
