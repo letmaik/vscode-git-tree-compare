@@ -1,3 +1,8 @@
+## 1.9.1
+
+* Removed confusing notification message if extension view is hidden [#65](https://github.com/letmaik/vscode-git-tree-compare/issues/65)
+* Always show refresh icon [#66](https://github.com/letmaik/vscode-git-tree-compare/issues/66)
+
 ## 1.9.0
 
 * Removed `location` setting as VS Code 1.43 now allows moving views freely
