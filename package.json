@@ -140,7 +140,7 @@
                 },
                 {
                     "command": "gitTreeCompare.refresh",
-                    "when": "view == gitTreeCompare && !config.gitTreeCompare.autoRefresh",
+                    "when": "view == gitTreeCompare",
                     "group": "navigation"
                 },
                 {
