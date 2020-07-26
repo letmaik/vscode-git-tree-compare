@@ -124,14 +124,30 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
         this.disposables.push(this.gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
 
+        const isRelevantChange = (uri: Uri) => {
+            if (uri.scheme != 'file') {
+                return false;
+            }
+            // non-git change
+            if (!/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path)) {
+                return true;
+            }
+            // git ref change
+            if (/\/\.git\/refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path)) {
+                return true;
+            }
+            // git index change
+            if (/\/\.git\/index$/.test(uri.path)) {
+                return true;
+            }
+            this.log(`Ignoring irrelevant change: ${uri.fsPath}`);
+            return false;
+        }
+
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
-
         const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
-        const onNonGitChange = filterEvent(onWorkspaceChange, uri => !/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path) && uri.scheme == 'file');
-        const onGitRefsChange = filterEvent(onWorkspaceChange, uri => /\/\.git\/refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path));
-
-        const onRelevantWorkspaceChange = anyEvent(onNonGitChange, onGitRefsChange);
+        const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, isRelevantChange);
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
     }
 
@@ -567,6 +583,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         //  e.g. "c:\Users\..\AppData\Roaming\Code - Insiders\User\globalStorage"
         const normPath = normalizePath(uri.fsPath);
         if (!normPath.startsWith(this.repoRoot + path.sep)) {
+            this.log(`Ignoring change outside of repository: ${uri.fsPath}`)
             return
         }
         if (!window.state.focused) {
