@@ -1,3 +1,8 @@
+## 1.9.2
+
+* Include git index changes in automatic tree refresh triggers
+* Log ignored file change events
+
 ## 1.9.1
 
 * Removed confusing notification message if extension view is hidden [#65](https://github.com/letmaik/vscode-git-tree-compare/issues/65)
