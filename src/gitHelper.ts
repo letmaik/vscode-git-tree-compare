@@ -26,8 +26,12 @@ export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[]
     return workspaceFolders;
 }
 
-export function getGitRepositoryFolders(git: GitAPI): string[] {
-    const repos = git.repositories;
+export function getGitRepositoryFolders(git: GitAPI, selectedFirst=false): string[] {
+    let repos = git.repositories;
+    if (selectedFirst) {
+        repos = [...repos];
+        repos.sort((r1, r2) => (r2.ui.selected as any) - (r1.ui.selected as any));
+    }
     const rootPaths = repos.map(r => r.rootUri.fsPath).filter(p => getWorkspaceFolders(p).length > 0);
     return rootPaths;
 }

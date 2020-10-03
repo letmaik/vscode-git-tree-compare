@@ -233,6 +233,11 @@
         "configuration": {
             "title": "Git Tree Compare",
             "properties": {
+                "gitTreeCompare.autoChangeRepository": {
+                    "type": "boolean",
+                    "description": "[EXPERIMENTAL] Whether to change the active repository whenever a different one is selected in the SCM view. Note that this only works well when not selecting multiple repositories. See GitHub issue #70 for more details.",
+                    "default": false
+                },
                 "gitTreeCompare.autoRefresh": {
                     "type": "boolean",
                     "description": "Whether to refresh the tree whenever a file in the workspace changes.",

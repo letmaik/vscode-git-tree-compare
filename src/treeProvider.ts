@@ -81,6 +81,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private treeRootIsRepo: boolean;
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
+    private autoChangeRepository: boolean;
     private autoRefresh: boolean;
     private refreshIndex: boolean;
     private iconsMinimal: boolean;
@@ -114,8 +115,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     async init(treeView: TreeView<Element>) {
         this.treeView = treeView
 
-        // use arbitrary repository at start if there are multiple
-        const gitRepos = getGitRepositoryFolders(this.gitApi);
+        // use arbitrary repository at start if there are multiple (prefer selected ones)
+        const gitRepos = getGitRepositoryFolders(this.gitApi, true);
         if (gitRepos.length > 0) {
             await this.changeRepository(gitRepos[0]);
         }
@@ -123,6 +124,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
         this.disposables.push(this.gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
+        for (const repository of this.gitApi.repositories) {
+            this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
+        }
 
         const isRelevantChange = (uri: Uri) => {
             if (uri.scheme != 'file') {
@@ -224,6 +228,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (this.repository === undefined) {
             await this.changeRepository(repository.rootUri.fsPath);
         }
+        this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
+    }
+
+    private async handleRepositoryUiChange(repository: GitAPIRepository) {
+        if (!this.autoChangeRepository || !repository.ui.selected) {
+            return;
+        }
+        let repoRoot = repository.rootUri.fsPath;
+        if (!getGitRepositoryFolders(this.gitApi).includes(repoRoot)) {
+            return;
+        }
+        repoRoot = normalizePath(repoRoot);
+        if (repoRoot === this.workspaceFolder) {
+            return;
+        }
+        this.log(`SCM repository change detected - changing repository: ${repoRoot}`);
+        await this.changeRepository(repoRoot);
     }
 
     private async handleWorkspaceFoldersChanged(e: WorkspaceFoldersChangeEvent) {
@@ -231,7 +252,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // then pick an arbitrary new one.
         for (var removedFolder of e.removed) {
             if (normalizePath(removedFolder.uri.fsPath) === this.workspaceFolder) {
-                const gitRepos = await getGitRepositoryFolders(this.gitApi);
+                const gitRepos = getGitRepositoryFolders(this.gitApi, true);
                 if (gitRepos.length > 0) {
                     const newFolder = gitRepos[0];
                     await this.changeRepository(newFolder);
@@ -243,7 +264,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // If no repository is selected but new folders were added,
         // then pick an arbitrary new one.
         if (!this.repository && e.added) {
-            const gitRepos = await getGitRepositoryFolders(this.gitApi);
+            const gitRepos = getGitRepositoryFolders(this.gitApi, true);
             if (gitRepos.length > 0) {
                 const newFolder = gitRepos[0];
                 await this.changeRepository(newFolder);
@@ -273,6 +294,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.treeRootIsRepo = config.get<string>('root') === 'repository';
         this.includeFilesOutsideWorkspaceFolderRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
+        this.autoChangeRepository = config.get<boolean>('autoChangeRepository', false);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
         this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
