@@ -78,6 +78,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
     readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
 
+    private isPaused: boolean;
+
     private treeRootIsRepo: boolean;
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
@@ -608,9 +610,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             this.log(`Ignoring change outside of repository: ${uri.fsPath}`)
             return
         }
-        if (!window.state.focused) {
+        if (!window.state.focused || !this.treeView.visible) {
+            if (this.isPaused) {
+                return;
+            }
+            this.isPaused = true;
             const onDidFocusWindow = filterEvent(window.onDidChangeWindowState, e => e.focused);
-            await eventToPromise(onDidFocusWindow);
+            const onDidBecomeVisible = filterEvent(this.treeView.onDidChangeVisibility, e => e.visible);
+            const onDidFocusWindowOrBecomeVisible = anyEvent<any>(onDidFocusWindow, onDidBecomeVisible);
+            await eventToPromise(onDidFocusWindowOrBecomeVisible);
+            this.isPaused = false;
             this.handleWorkspaceChange(uri);
             return;
         }
