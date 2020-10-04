@@ -1,3 +1,8 @@
+## 1.10.0
+
+* Add experimental option to automatically change repository when SCM selection changes [#70](https://github.com/letmaik/vscode-git-tree-compare/issues/70)
+* Disable automatic refreshes when extension view is not visible [#71](https://github.com/letmaik/vscode-git-tree-compare/issues/71)
+
 ## 1.9.2
 
 * Include git index changes in automatic tree refresh triggers
