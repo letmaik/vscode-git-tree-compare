@@ -1,3 +1,7 @@
+## 1.10.1
+
+* Custom sidebar icon [#77](https://github.com/letmaik/vscode-git-tree-compare/pull/77)
+
 ## 1.10.0
 
 * Add experimental option to automatically change repository when SCM selection changes [#70](https://github.com/letmaik/vscode-git-tree-compare/issues/70)
