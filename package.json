@@ -31,6 +31,9 @@
     "engines": {
         "vscode": "^1.43.0"
     },
+    "capabilities": {
+        "virtualWorkspaces": false
+    },
     "activationEvents": [
         "onView:gitTreeCompare",
         "onCommand:gitTreeCompare.openChanges",
