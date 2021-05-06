@@ -32,7 +32,10 @@
         "vscode": "^1.43.0"
     },
     "capabilities": {
-        "virtualWorkspaces": false
+        "virtualWorkspaces": false,
+        "untrustedWorkspaces": {
+            "supported": true
+        }
     },
     "activationEvents": [
         "onView:gitTreeCompare",
