@@ -1,3 +1,8 @@
+## 1.10.2
+
+* Declare that untrusted workspaces are supported
+* Declare that virtual workspaces are not supported
+
 ## 1.10.1
 
 * Custom sidebar icon [#77](https://github.com/letmaik/vscode-git-tree-compare/pull/77)
