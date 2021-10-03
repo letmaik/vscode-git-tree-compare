@@ -9,7 +9,11 @@ import { API as GitAPI } from './typings/git';
 
 export async function createGit(gitApi: GitAPI, outputChannel: OutputChannel): Promise<Git> {
     outputChannel.appendLine(`Using git from ${gitApi.git.path}`);
-    return new Git({ gitPath: gitApi.git.path, version: '' });
+    return new Git({
+        gitPath: gitApi.git.path,
+        userAgent: '',
+        version: '',
+    });
 }
 
 export function getWorkspaceFolders(repositoryFolder: string): WorkspaceFolder[] {
@@ -38,7 +42,7 @@ export function getGitRepositoryFolders(git: GitAPI, selectedFirst=false): strin
 
 export async function getAbsGitDir(repo: Repository): Promise<string> {
     // We don't use --absolute-git-dir here as that requires git >= 2.13.
-    let res = await repo.run(['rev-parse', '--git-dir']);
+    let res = await repo.exec(['rev-parse', '--git-dir']);
     let dir = res.stdout.trim();
     if (!path.isAbsolute(dir)) {
         dir = path.join(repo.root, dir);
@@ -47,7 +51,7 @@ export async function getAbsGitDir(repo: Repository): Promise<string> {
 }
 
 export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
-    let res = await repo.run(['rev-parse', '--git-common-dir']);
+    let res = await repo.exec(['rev-parse', '--git-common-dir']);
     let dir = res.stdout.trim();
     if (!path.isAbsolute(dir)) {
         dir = path.join(repo.root, dir);
@@ -124,7 +128,7 @@ async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,strin
 }
 
 export async function getMergeBase(repo: Repository, headRef: string, baseRef: string): Promise<string> {
-    const result = await repo.run(['merge-base', baseRef, headRef]);
+    const result = await repo.exec(['merge-base', baseRef, headRef]);
     const mergeBase = result.stdout.trim();
     return mergeBase;
 }
@@ -192,15 +196,15 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
         // avoid superfluous diff entries if files only got touched
         // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
         try {
-            await repo.run(['update-index', '--refresh', '-q']);
+            await repo.exec(['update-index', '--refresh', '-q']);
         } catch (e) {
             // ignore errors as this is a bonus anyway
         }
     }
 
     // exceptions can happen with newly initialized repos without commits, or when git is busy
-    let diffIndexResult = await repo.run(['diff-index', '--no-renames', ref, '--']);
-    let untrackedResult = await repo.run(['ls-files',  '--others', '--exclude-standard']);
+    let diffIndexResult = await repo.exec(['diff-index', '--no-renames', ref, '--']);
+    let untrackedResult = await repo.exec(['ls-files',  '--others', '--exclude-standard']);
 
     const repoRoot = normalizePath(repo.root);
     const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')

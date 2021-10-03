@@ -1,7 +1,7 @@
-import { ExtensionContext, window, Disposable, commands, TreeView, extensions } from 'vscode';
+import { ExtensionContext, window, Disposable, commands, extensions } from 'vscode';
 
 import { NAMESPACE } from './constants'
-import { GitTreeCompareProvider, Element } from './treeProvider';
+import { GitTreeCompareProvider } from './treeProvider';
 import { createGit } from './gitHelper';
 import { toDisposable } from './git/util';
 import { GitExtension } from './typings/git';
@@ -17,7 +17,6 @@ export function activate(context: ExtensionContext) {
     const gitApi = gitExt.getAPI(1);
 
     let provider: GitTreeCompareProvider | null = null;
-    let treeView: TreeView<Element> | null = null;
 
     commands.registerCommand(NAMESPACE + '.openChanges', node => {
         if (!node) {
@@ -78,7 +77,7 @@ export function activate(context: ExtensionContext) {
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
-        treeView = window.createTreeView(
+        const treeView = window.createTreeView(
             NAMESPACE,
             {treeDataProvider: provider}
         );

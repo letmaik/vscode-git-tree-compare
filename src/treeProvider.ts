@@ -25,7 +25,7 @@ class FolderElement {
 }
 
 class RepoRootElement extends FolderElement {
-    constructor(public absPath: string) {
+    constructor(absPath: string) {
         super(absPath, true);
     }
 }
@@ -46,13 +46,13 @@ class ChangeBaseRefItem implements QuickPickItem {
 }
 
 class ChangeBaseTagItem extends ChangeBaseRefItem {
-	get description(): string {
+	override get description(): string {
 		return "Tag at " + this.shortCommit;
 	}
 }
 
 class ChangeBaseRemoteHeadItem extends ChangeBaseRefItem {
-	get description(): string {
+	override get description(): string {
 		return "Remote branch at " + this.shortCommit;
 	}
 }
@@ -75,8 +75,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private treeView: TreeView<Element>
 
-    private _onDidChangeTreeData: EventEmitter<Element | undefined> = new EventEmitter<Element | undefined>();
-    readonly onDidChangeTreeData: Event<Element | undefined> = this._onDidChangeTreeData.event;
+    private _onDidChangeTreeData: EventEmitter<Element | void> = new EventEmitter<Element | undefined>();
+    readonly onDidChangeTreeData: Event<Element | void> = this._onDidChangeTreeData.event;
 
     private isPaused: boolean;
 
@@ -203,7 +203,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.setRepository(repositoryRoot);
             await this.updateRefs();
             await this.updateDiff(false);
-        } catch (e) {
+        } catch (e: any) {
             let msg = 'Changing the repository failed';
             this.log(msg, e);
             window.showErrorMessage(`${msg}: ${e.message}`);
@@ -336,7 +336,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     getTreeItem(element: Element): TreeItem {
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.asAbsolutePath);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.asAbsolutePath);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -347,7 +347,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (!this.filesInsideTreeRoot) {
                 try {
                     await this.updateDiff(false);
-                } catch (e) {
+                } catch (e: any) {
                     // some error occured, ignore and try again next time
                     this.log('Ignoring updateDiff() error during initial getChildren()', e);
                     return [];
@@ -628,7 +628,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // make sure merge base is updated when switching branches
             try {
                 await this.updateRefs(this.baseRef);
-            } catch (e) {
+            } catch (e: any) {
                 // some error occured, ignore and try again next time
                 this.log('Ignoring updateRefs() error during handleWorkspaceChange()', e);
                 return;
@@ -636,7 +636,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             await this.updateDiff(true);
-        } catch (e) {
+        } catch (e: any) {
             // some error occured, ignore and try again next time
             this.log('Ignoring updateDiff() error during handleWorkspaceChange()', e);
             return;
@@ -814,7 +814,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async _ => {
             try {
                 await this.updateRefs(baseRef);
-            } catch (e) {
+            } catch (e: any) {
                 let msg = 'Updating the git tree base failed';
                 this.log(msg, e);
                 window.showErrorMessage(`${msg}: ${e.message}`);
@@ -822,7 +822,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             try {
                 await this.updateDiff(false);
-            } catch (e) {
+            } catch (e: any) {
                 let msg = 'Updating the git tree failed';
                 this.log(msg, e);
                 window.showErrorMessage(`${msg}: ${e.message}`);
@@ -845,7 +845,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     await this.updateRefs(this.baseRef);
                 }
                 await this.updateDiff(true);
-            } catch (e) {
+            } catch (e: any) {
                 let msg = 'Updating the git tree failed';
                 this.log(msg, e);
                 window.showErrorMessage(`${msg}: ${e.message}`);
