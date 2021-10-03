@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch, tag, or commit in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.10.2",
+    "version": "1.10.3",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -286,6 +286,11 @@
                 "gitTreeCompare.iconsMinimal": {
                     "type": "boolean",
                     "description": "Whether to use a compact icon alignment (like Seti file icon theme) where only files have icons.",
+                    "default": false
+                },
+                "gitTreeCompare.collapsed": {
+                    "type": "boolean",
+                    "description": "Whether to show folders collapsed instead of expanded.",
                     "default": false
                 }
             }

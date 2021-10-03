@@ -88,6 +88,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private refreshIndex: boolean;
     private iconsMinimal: boolean;
     private fullDiff: boolean;
+    private showCollapsed: boolean;
 
     private workspaceFolder: string;
     private repository: Repository | undefined;
@@ -301,6 +302,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.fullDiff = config.get<string>('diffMode') === 'full';
+        this.showCollapsed = config.get<boolean>('collapsed', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -869,6 +871,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 }
 
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
+                    showCollapsed: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const iconRoot = asAbsolutePath('resources/icons');
     if (element instanceof FileElement) {
@@ -899,7 +902,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         return item;
     } else if (element instanceof FolderElement) {
         const label = path.basename(element.absPath);
-        const item = new TreeItem(label, TreeItemCollapsibleState.Expanded);
+        const item = new TreeItem(label, showCollapsed ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.Expanded);
         item.tooltip = element.absPath;
         item.contextValue = 'folder';
         item.id = element.absPath;

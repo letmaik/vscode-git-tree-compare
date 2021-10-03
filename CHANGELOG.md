@@ -1,3 +1,7 @@
+## 1.10.3
+
+* Add option to show folders collapsed instead of expanded [#78](https://github.com/letmaik/vscode-git-tree-compare/issues/78)
+
 ## 1.10.2
 
 * Declare that untrusted workspaces are supported
