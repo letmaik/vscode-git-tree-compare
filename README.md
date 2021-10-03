@@ -41,3 +41,5 @@ In bigger projects with many files it also provides **context**, it gives you a 
 `gitTreeCompare.iconsMinimal` Option which enables a compact icon layout where only files have icons, comparable to the Seti file icon theme.
 
 `gitTreeCompare.location` Determines where the comparison tree view is displayed, either in the Explorer tab or the Source Control (default) tab.
+
+`gitTreeCompare.collapsed` When enabled, shows folders collapsed instead of expanded. NOTE: Changing this option requires restarting VS Code.
