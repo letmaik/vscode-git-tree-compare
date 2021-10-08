@@ -59,7 +59,7 @@ export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
     return dir;
 }
 
-export async function getDefaultBranch(repo: Repository, absGitCommonDir: string, head: Ref): Promise<string | undefined> {
+export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
     // determine which remote HEAD is tracking
     let remote: string
     if (head.name) {
@@ -79,24 +79,14 @@ export async function getDefaultBranch(repo: Repository, absGitCommonDir: string
         remote = 'origin';
     }
     // determine default branch for the remote
-    const remoteHead = remote + "/HEAD";
-    const refs = await repo.getRefs();
-    if (refs.find(ref => ref.name == remoteHead) === undefined) {
-        return;
-    }
-    // there is no git command equivalent to "git remote set-head" for reading the default branch
-    // however, the branch name is in the file .git/refs/remotes/$remote/HEAD
-    // the file format is:
-    // ref: refs/remotes/origin/master
-    const symRefPath = path.join(absGitCommonDir, 'refs', 'remotes', remote, 'HEAD');
-    let symRef: string;
+    const remoteHead = `refs/remotes/${remote}/HEAD`;
     try {
-        symRef = await fs.readFile(symRefPath, 'utf8');
+        const result = await repo.exec(['symbolic-ref', '--short', remoteHead]);
+        const remoteHeadBranch = result.stdout.trim();
+        return remoteHeadBranch;
     } catch (e) {
         return;
     }
-    const remoteHeadBranch = symRef.trim().replace('ref: refs/remotes/', '');
-    return remoteHeadBranch;
 }
 
 export async function getBranchCommit(absGitCommonDir: string, branchName: string): Promise<string> {

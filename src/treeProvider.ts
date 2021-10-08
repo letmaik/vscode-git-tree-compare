@@ -396,7 +396,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 baseRef = await this.getStoredBaseRef();           
             }
             if (!baseRef) {
-                baseRef = await getDefaultBranch(this.repository!, this.absGitCommonDir, HEAD);
+                baseRef = await getDefaultBranch(this.repository!, HEAD);
             }
             if (!baseRef) {
                 if (HEAD.name) {
