@@ -9,7 +9,7 @@ import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
-import { getDefaultBranch, getMergeBase, getHeadModificationDate, getBranchCommit,
+import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
          getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
@@ -423,7 +423,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (!this.fullDiff && baseRef != HEAD.name) {
                 // determine merge base to create more sensible/compact diff
                 try {
-                    mergeBase = await getMergeBase(this.repository!, HEADref, baseRef);
+                    mergeBase = await this.repository!.getMergeBase(HEADref, baseRef);
                 } catch (e) {
                     // sometimes the merge base cannot be determined
                     // this can be the case with shallow clones but may have other reasons

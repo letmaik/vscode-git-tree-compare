@@ -127,12 +127,6 @@ async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,strin
         .map((groups: RegExpExecArray) => [groups[2], groups[1]] as [string, string]));
 }
 
-export async function getMergeBase(repo: Repository, headRef: string, baseRef: string): Promise<string> {
-    const result = await repo.exec(['merge-base', baseRef, headRef]);
-    const mergeBase = result.stdout.trim();
-    return mergeBase;
-}
-
 export async function getHeadModificationDate(absGitDir: string): Promise<Date> {
     const headPath = path.join(absGitDir, 'HEAD');
     const stats = await fs.stat(headPath);
