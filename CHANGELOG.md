@@ -1,3 +1,8 @@
+## 1.11.0
+
+* Find renames, enabled by default [#52](https://github.com/letmaik/vscode-git-tree-compare/issues/52)
+* Handle non-ascii characters [#79](https://github.com/letmaik/vscode-git-tree-compare/issues/79)
+
 ## 1.10.3
 
 * Add option to show folders collapsed instead of expanded [#78](https://github.com/letmaik/vscode-git-tree-compare/issues/78)

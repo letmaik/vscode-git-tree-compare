@@ -144,14 +144,18 @@ export interface IDiffStatus {
      * A Addition of a file
      * D Deletion of a file
      * M Modification of file contents
+     * R Renaming of a file
      * C File has merge conflicts
      * U Untracked file
      * T Type change (regular/symlink etc.)
      */
     status: StatusCode
 
-    /** absolute path to file on disk */
-    absPath: string
+    /** absolute path to src file on disk */
+    srcAbsPath: string
+
+    /** absolute path to dst file on disk */
+    dstAbsPath: string
 
     /** True if this was or is a submodule */
     isSubmodule: boolean
@@ -162,22 +166,24 @@ const MODE_EMPTY = '000000';
 const MODE_SUBMODULE = '160000';
 
 class DiffStatus implements IDiffStatus {
-    readonly absPath: string;
+    readonly srcAbsPath: string;
+    readonly dstAbsPath: string;
     readonly isSubmodule: boolean;
 
-    constructor(repoRoot: string, public status: StatusCode, relPath: string, srcMode: string, dstMode: string) {
-        this.absPath = path.join(repoRoot, relPath);
+    constructor(repoRoot: string, public status: StatusCode, srcRelPath: string, dstRelPath: string | undefined, srcMode: string, dstMode: string) {
+        this.srcAbsPath = path.join(repoRoot, srcRelPath);
+        this.dstAbsPath = dstRelPath ? path.join(repoRoot, dstRelPath) : this.srcAbsPath;
         this.isSubmodule = srcMode == MODE_SUBMODULE || dstMode == MODE_SUBMODULE;
     }
 }
 
-export type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U' | 'T'
+export type StatusCode = 'A' | 'D' | 'M' | 'C' | 'U' | 'T' | 'R';
 
 function sanitizeStatus(status: string): StatusCode {
     if (status == 'U') {
         return 'C';
     }
-    if (status.length != 1 || 'ADMT'.indexOf(status) == -1) {
+    if (status.length != 1 || 'ADMTR'.indexOf(status) == -1) {
         throw new Error('unsupported git status: ' + status);
     }
     return status as StatusCode;
@@ -189,9 +195,35 @@ const SHA1_LEN = 40;
 const SRC_MODE_OFFSET = 1;
 const DST_MODE_OFFSET = 2 + MODE_LEN;
 const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
-const PATH_OFFSET = STATUS_OFFSET + 2;
 
-export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean): Promise<IDiffStatus[]> {
+function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
+    const entries: IDiffStatus[] = [];
+    while (out) {
+        const srcMode = out.substr(SRC_MODE_OFFSET, MODE_LEN);
+        const dstMode = out.substr(DST_MODE_OFFSET, MODE_LEN);
+        const status = out[STATUS_OFFSET];
+        out = out.substr(STATUS_OFFSET + 1);
+        let srcPathStart = out.indexOf('\0') + 1;
+        out = out.substr(srcPathStart);
+        let nextNul = out.indexOf('\0');
+        const srcPath = out.substring(0, nextNul);
+        out = out.substr(nextNul + 1);
+        let dstPath: string | undefined;
+        if (status === 'C' || status === 'R') {
+            nextNul = out.indexOf('\0');
+            dstPath = out.substring(0, nextNul);
+            out = out.substr(nextNul + 1);
+        }
+        entries.push(new DiffStatus(
+            repoRoot,
+            sanitizeStatus(status),
+            srcPath, dstPath,
+            srcMode, dstMode));
+    }
+    return entries;
+}
+
+export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean): Promise<IDiffStatus[]> {
     if (refreshIndex) {
         // avoid superfluous diff entries if files only got touched
         // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
@@ -203,33 +235,26 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     }
 
     // exceptions can happen with newly initialized repos without commits, or when git is busy
-    let diffIndexResult = await repo.exec(['diff-index', '--no-renames', ref, '--']);
-    let untrackedResult = await repo.exec(['ls-files',  '--others', '--exclude-standard']);
+    
+    const renamesFlag = findRenames ? '--find-renames' : '--no-renames';
+    let diffIndexResult = await repo.exec(['diff-index', '-z', renamesFlag, ref, '--']);
+    let untrackedResult = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
 
     const repoRoot = normalizePath(repo.root);
-    const diffIndexStatuses: IDiffStatus[] = diffIndexResult.stdout.trim().split('\n')
-        .filter(line => !!line)
-        .map(line =>
-            new DiffStatus(repoRoot,
-                sanitizeStatus(line[STATUS_OFFSET]),
-                line.substr(PATH_OFFSET).trim(),
-                line.substr(SRC_MODE_OFFSET, MODE_LEN),
-                line.substr(DST_MODE_OFFSET, MODE_LEN)
-            )
-        );
+    const diffIndexStatuses = parseDiffIndexOutput(repoRoot, diffIndexResult.stdout);
 
-    const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.trim().split('\n')
-        .filter(line => !!line)
-        .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, MODE_EMPTY, MODE_REGULAR_FILE));
+    const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.split('\0')
+        .slice(0, -1)
+        .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
     
-    const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.absPath))
+    const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.dstAbsPath))
 
     // If a file was removed (D in diff-index) but was then re-introduced and not committed yet,
     // then that file also appears as untracked (in ls-files). We need to decide which status to keep.
     // Since the untracked status is newer it gets precedence.
-    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.absPath));
+    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
         
     const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
-    statuses.sort((s1, s2) => s1.absPath.localeCompare(s2.absPath))
+    statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
     return statuses;
 }

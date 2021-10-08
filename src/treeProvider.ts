@@ -17,11 +17,11 @@ import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
 class FileElement implements IDiffStatus {
-    constructor(public absPath: string, public status: StatusCode, public isSubmodule: boolean) {}
+    constructor(public srcAbsPath: string, public dstAbsPath: string, public status: StatusCode, public isSubmodule: boolean) {}
 }
 
 class FolderElement {
-    constructor(public absPath: string, public useFilesOutsideTreeRoot: boolean) {}
+    constructor(public dstAbsPath: string, public useFilesOutsideTreeRoot: boolean) {}
 }
 
 class RepoRootElement extends FolderElement {
@@ -88,6 +88,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private refreshIndex: boolean;
     private iconsMinimal: boolean;
     private fullDiff: boolean;
+    private findRenames: boolean;
     private showCollapsed: boolean;
 
     private workspaceFolder: string;
@@ -302,6 +303,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.fullDiff = config.get<string>('diffMode') === 'full';
+        this.findRenames = config.get<boolean>('findRenames', true);
         this.showCollapsed = config.get<boolean>('collapsed', false);
     }
 
@@ -367,8 +369,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
         } else if (element instanceof FolderElement) {
-            this.loadedFolderElements.set(element.absPath, element);
-            return this.getFileSystemEntries(element.absPath, element.useFilesOutsideTreeRoot);
+            this.loadedFolderElements.set(element.dstAbsPath, element);
+            return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
         }
         assert(false, "unsupported element type");
         return [];
@@ -459,12 +461,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex);
+        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
         for (const entry of diff) {
-            const folder = path.dirname(entry.absPath);
+            const folder = path.dirname(entry.dstAbsPath);
 
             const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
             const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
@@ -494,8 +496,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
                 const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
                 const newFiles = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
-                const oldItems = oldFiles.get(folderPath)!.map(f => f.absPath);
-                const newItems = newFiles.get(folderPath)!.map(f => f.absPath);
+                const oldItems = oldFiles.get(folderPath)!.map(f => f.dstAbsPath);
+                const newItems = newFiles.get(folderPath)!.map(f => f.dstAbsPath);
                 for (const {files, items} of [{files: oldFiles, items: oldItems},
                                               {files: newFiles, items: newItems}]) {
                     // add direct subdirectories to items list
@@ -653,6 +655,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
         const oldFullDiff = this.fullDiff;
+        const oldFindRenames = this.findRenames;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -660,7 +663,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldIconsMinimal != this.iconsMinimal ||
             (!oldAutoRefresh && this.autoRefresh) ||
             (!oldRefreshIndex && this.refreshIndex) ||
-            oldFullDiff != this.fullDiff) {
+            oldFullDiff != this.fullDiff ||
+            oldFindRenames != this.findRenames) {
 
             if (!this.repository) {
                 return;
@@ -671,6 +675,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             
             if (oldFullDiff != this.fullDiff || 
+                oldFindRenames != this.findRenames ||
                 (!oldAutoRefresh && this.autoRefresh) ||
                 (!oldRefreshIndex && this.refreshIndex)) {
                 await this.updateRefs(this.baseRef);
@@ -690,7 +695,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
             }
         }
-        entries.sort((a, b) => path.basename(a.absPath).localeCompare(path.basename(b.absPath)));
+        entries.sort((a, b) => path.basename(a.dstAbsPath).localeCompare(path.basename(b.dstAbsPath)));
 
         // add files
         const fileEntries = files.get(folder);
@@ -698,7 +703,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                entries.push(new FileElement(file.absPath, file.status, file.isSubmodule));
+                entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, file.status, file.isSubmodule));
             }
         }
 
@@ -706,12 +711,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async openChanges(fileEntry: FileElement) {
-        await this.doOpenChanges(fileEntry.absPath, fileEntry.status);
+        await this.doOpenChanges(fileEntry.srcAbsPath, fileEntry.dstAbsPath, fileEntry.status);
     }
 
-    async doOpenChanges(absPath: string, status: StatusCode, preview=true) {
-        const right = Uri.file(absPath);
-        const left = this.gitApi.toGitUri(right, this.mergeBase);
+    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+        const right = Uri.file(dstAbsPath);
+        const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
 
         if (status === 'U' || status === 'A') {
             return commands.executeCommand('vscode.open', right);
@@ -723,24 +728,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const options: TextDocumentShowOptions = {
             preview: preview
         };
-        const filename = path.basename(absPath);
+        const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
     }
 
     openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
-        const withinFolder = entry instanceof FolderElement ? entry.absPath : undefined;
+        const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
         for (const file of this.iterFiles(withinFolder)) {
-            this.doOpenChanges(file.absPath, file.status, false);
+            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, false);
         }
     }
 
     async openFile(fileEntry: FileElement) {
-        return this.doOpenFile(fileEntry.absPath, fileEntry.status);
+        return this.doOpenFile(fileEntry.dstAbsPath, fileEntry.status);
     }
 
-    async doOpenFile(absPath: string, status: StatusCode, preview=false) {
-        const right = Uri.file(absPath);
+    async doOpenFile(dstAbsPath: string, status: StatusCode, preview=false) {
+        const right = Uri.file(dstAbsPath);
         const left = this.gitApi.toGitUri(right, this.mergeBase);
         const uri = status === 'D' ? left : right;
         const options: TextDocumentShowOptions = {
@@ -750,12 +755,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     openChangedFiles(entry: RefElement | RepoRootElement | FolderElement | undefined) {
-        const withinFolder = entry instanceof FolderElement ? entry.absPath : undefined;
+        const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
         for (const file of this.iterFiles(withinFolder)) {
             if (file.status == 'D') {
                 continue;
             }
-            this.doOpenFile(file.absPath, file.status, false);
+            this.doOpenFile(file.dstAbsPath, file.status, false);
         }
     }
 
@@ -875,11 +880,14 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const iconRoot = asAbsolutePath('resources/icons');
     if (element instanceof FileElement) {
-        const label = path.basename(element.absPath);
+        const label = path.basename(element.dstAbsPath);
         const item = new TreeItem(label);
-        item.tooltip = element.absPath;
+        item.tooltip = element.dstAbsPath;
+        if (element.srcAbsPath !== element.dstAbsPath) {
+            item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
+        }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
-        item.id = element.absPath;
+        item.id = element.dstAbsPath;
         item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
         if (!element.isSubmodule) {
             const command = openChangesOnSelect ? 'openChanges' : 'openFile';
@@ -893,7 +901,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     } else if (element instanceof RepoRootElement) {
         const label = '/';
         const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
-        item.tooltip = element.absPath;
+        item.tooltip = element.dstAbsPath;
         item.contextValue = 'root';
         item.id = 'root'
         if (!iconsMinimal) {
@@ -901,11 +909,11 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         return item;
     } else if (element instanceof FolderElement) {
-        const label = path.basename(element.absPath);
+        const label = path.basename(element.dstAbsPath);
         const item = new TreeItem(label, showCollapsed ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.Expanded);
-        item.tooltip = element.absPath;
+        item.tooltip = element.dstAbsPath;
         item.contextValue = 'folder';
-        item.id = element.absPath;
+        item.id = element.dstAbsPath;
         if (!iconsMinimal) {
             item.iconPath = new ThemeIcon('folder-opened');
         }
@@ -933,6 +941,7 @@ function toIconName(element: FileElement) {
         case 'M': return 'status-modified';
         case 'C': return 'status-conflict';
         case 'T': return 'status-typechange';
+        case 'R': return 'status-renamed';
     }
 }
 

@@ -32,6 +32,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 `gitTreeCompare.refreshIndex` Option to turn off refreshing of the git index each time the tree is refreshed. Keeping this enabled avoids superfluous diff entries for cases when only the file modification date is changed, at the cost of an extra git invocation.
 
+`gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff-index`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
+
 `gitTreeCompare.openChanges` Option which decides what should happen when clicking on a file in the tree - either open the changes, or the file itself. Default is to open the changes. The other action can always be accessed via the file's context menu.
 
 `gitTreeCompare.root` Determines what the tree root should be when the workspace folder is not the same as the repository root. Default is to make the workspace folder the tree root. Any changes outside the workspace folder are then displayed in a special `/` node.
