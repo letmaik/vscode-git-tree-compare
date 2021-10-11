@@ -878,7 +878,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
                     showCollapsed: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
-    const iconRoot = asAbsolutePath('resources/icons');
+    const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
         const label = path.basename(element.dstAbsPath);
         const item = new TreeItem(label);
@@ -888,7 +888,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;
-        item.iconPath = path.join(iconRoot,	toIconName(element) + '.svg');
+        item.iconPath = path.join(gitIconRoot,	toIconName(element) + '.svg');
         if (!element.isSubmodule) {
             const command = openChangesOnSelect ? 'openChanges' : 'openFile';
             item.command = {

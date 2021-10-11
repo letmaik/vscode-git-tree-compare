@@ -60,7 +60,7 @@
                     "id": "gitTreeCompare",
                     "name": "Git Tree Compare",
                     "when": "config.git.enabled && gitOpenRepositoryCount != 0",
-                    "icon": "./resources/git-compare.svg"
+                    "icon": "./resources/codicons/git-compare.svg"
                 }
             ]
         },
