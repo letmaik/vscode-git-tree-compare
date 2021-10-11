@@ -405,7 +405,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     // detached HEAD and no default branch was found
                     // pick an arbitrary ref as base, give preference to common refs
                     const refs = await this.repository!.getRefs();
-                    const commonRefs = ['origin/master', 'master'];
+                    const commonRefs = ['origin/main', 'main', 'origin/master', 'master'];
                     const match = refs.find(ref => ref.name !== undefined && commonRefs.indexOf(ref.name) !== -1);
                     if (match) {
                         baseRef = match.name;
