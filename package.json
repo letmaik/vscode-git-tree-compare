@@ -54,13 +54,22 @@
     ],
     "main": "./dist/extension",
     "contributes": {
-        "views": {
-            "scm": [
+        "viewsContainers": {
+            "activitybar": [
                 {
                     "id": "gitTreeCompare",
-                    "name": "Git Tree Compare",
+                    "icon": "./resources/logo.svg",
+                    "title": "Git Tree Compare"
+                }
+            ]
+        },
+        "views": {
+            "gitTreeCompare": [
+                {
+                    "id": "gitTreeCompare",
+                    "name": "none",
                     "when": "config.git.enabled && gitOpenRepositoryCount != 0",
-                    "icon": "./resources/codicons/git-compare.svg"
+                    "icon": "./resources/logo.svg"
                 }
             ]
         },

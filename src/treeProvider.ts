@@ -200,7 +200,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.log('Using repository: ' + this.repoRoot);
 
         const repoName = path.basename(repoRoot);
-        this.treeView.title = `Git Tree Compare: ${repoName}`;
+        this.treeView.title = repoName;
     }
 
     async unsetRepository() {
@@ -208,7 +208,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this._onDidChangeTreeData.fire();
         this.log('No repository selected');
 
-        this.treeView.title = 'Git Tree Compare';
+        this.treeView.title = 'none';
     }
 
     async changeRepository(repositoryRoot: string) {
