@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as path from 'path'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
-         Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
+         Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
          workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon } from 'vscode'
 import { NAMESPACE } from './constants'
@@ -73,13 +73,11 @@ type FolderAbsPath = string;
 
 export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
 
-    private treeView: TreeView<Element>
+    // Events
+    private _onDidChangeTreeData = new EventEmitter<Element | void>();
+    readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-    private _onDidChangeTreeData: EventEmitter<Element | void> = new EventEmitter<Element | undefined>();
-    readonly onDidChangeTreeData: Event<Element | void> = this._onDidChangeTreeData.event;
-
-    private isPaused: boolean;
-
+    // Configuration options
     private treeRootIsRepo: boolean;
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
@@ -91,24 +89,37 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private findRenames: boolean;
     private showCollapsed: boolean;
 
-    private workspaceFolder: string;
+    // Dynamic options
     private repository: Repository | undefined;
+    private baseRef: string;
+   
+    // Static state of repository
+    private workspaceFolder: string;
     private absGitDir: string;
     private absGitCommonDir: string;
-
-    private treeRoot: FolderAbsPath;
     private repoRoot: FolderAbsPath;
+
+    // Dynamic state of repository
+    private headLastChecked: Date;
+    private headName: string | undefined; // undefined if detached
+    private headCommit: string;
+
+    // Diff parameters, derived
+    private mergeBase: string;
+
+    // Diff results
     private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     
-    private readonly loadedFolderElements: Map<FolderAbsPath, FolderElement> = new Map();
+    // UI parameters, derived
+    private treeRoot: FolderAbsPath;
 
-    private headLastChecked: Date;
-    private headName: string | undefined;
-    private headCommit: string;
-    private baseRef: string;
-    private mergeBase: string;
+    // UI state
+    private treeView: TreeView<Element>;
+    private isPaused: boolean;
+    private readonly loadedFolderElements = new Map<FolderAbsPath, FolderElement>();
 
+    // Other
     private readonly disposables: Disposable[] = [];
 
     constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
