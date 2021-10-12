@@ -69,6 +69,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.switchToMergeDiff', () => {
         runAfterInit(() => provider!.switchToMergeDiff());
     });
+    commands.registerCommand(NAMESPACE + '.viewAsList', () => {
+        runAfterInit(() => provider!.viewAsTree(false));
+    });
+    commands.registerCommand(NAMESPACE + '.viewAsTree', () => {
+        runAfterInit(() => provider!.viewAsTree(true));
+    });
 
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);

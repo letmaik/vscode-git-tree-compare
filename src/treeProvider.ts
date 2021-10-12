@@ -17,11 +17,18 @@ import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
 class FileElement implements IDiffStatus {
-    constructor(public srcAbsPath: string, public dstAbsPath: string, public status: StatusCode, public isSubmodule: boolean) {}
+    constructor(
+        public srcAbsPath: string,
+        public dstAbsPath: string,
+        public dstRelPath: string,
+        public status: StatusCode,
+        public isSubmodule: boolean) {}
 }
 
 class FolderElement {
-    constructor(public dstAbsPath: string, public useFilesOutsideTreeRoot: boolean) {}
+    constructor(
+        public dstAbsPath: string,
+        public useFilesOutsideTreeRoot: boolean) {}
 }
 
 class RepoRootElement extends FolderElement {
@@ -92,6 +99,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // Dynamic options
     private repository: Repository | undefined;
     private baseRef: string;
+    private viewAsList = false;
    
     // Static state of repository
     private workspaceFolder: string;
@@ -351,7 +359,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     getTreeItem(element: Element): TreeItem {
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.asAbsolutePath);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.asAbsolutePath);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -526,41 +534,65 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
                 doFullRefresh = true;
             } else {
-                // collect all folders which had direct changes (not in subfolders)
-                const dirtyFoldersInsideTreeRoot: string[] = [];
-                const dirtyFoldersOutsideTreeRoot: string[] = [];
-                for (const folderPath of this.loadedFolderElements.keys()) {
-                    const isTreeRootSubfolder = folderPath.startsWith(this.treeRoot + path.sep);
-                    const files = isTreeRootSubfolder ? filesInsideTreeRoot : filesOutsideTreeRoot;
-                    const dirtyFolders = isTreeRootSubfolder ? dirtyFoldersInsideTreeRoot : dirtyFoldersOutsideTreeRoot;
-                    if (!files.has(folderPath)) {
-                        // folder was removed; dirty state will be handled by parent folder
-                        this.loadedFolderElements.delete(folderPath);
-                    } else if (hasChanged(folderPath, isTreeRootSubfolder)) {
-                        dirtyFolders.push(folderPath);
-                    }
-                }
-
-                // merge all subfolder changes with parent changes to obtain minimal set of change events
-                for (const dirtyFolders of [dirtyFoldersInsideTreeRoot, dirtyFoldersOutsideTreeRoot]) {
-                    dirtyFolders.sort();
-                    let lastAddedFolder = '';
-                    for (const dirtyFolder of dirtyFolders) {
-                        if (!dirtyFolder.startsWith(lastAddedFolder + path.sep)) {
-                            minDirtyFolders.push(dirtyFolder);
-                            lastAddedFolder = dirtyFolder;
+                if (this.viewAsList) {
+                    // check if any folder has changed
+                    for (const folder of filesInsideTreeRoot.keys()) {
+                        if (hasChanged(folder, true)) {
+                            doFullRefresh = true;
+                            break;
                         }
                     }
-                }
+                    if (!doFullRefresh) {
+                        // If the special root node is displayed and only
+                        // files inside there changed, then this could be
+                        // optimized further by only updating that node.
+                        for (const folder of filesOutsideTreeRoot.keys()) {
+                            if (hasChanged(folder, false)) {
+                                doFullRefresh = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!doFullRefresh) {
+                        fireChangeEvents = false;
+                    }
+                } else {
+                    // collect all folders which had direct changes (not in subfolders)
+                    const dirtyFoldersInsideTreeRoot: string[] = [];
+                    const dirtyFoldersOutsideTreeRoot: string[] = [];
+                    for (const folderPath of this.loadedFolderElements.keys()) {
+                        const isTreeRootSubfolder = folderPath.startsWith(this.treeRoot + path.sep);
+                        const files = isTreeRootSubfolder ? filesInsideTreeRoot : filesOutsideTreeRoot;
+                        const dirtyFolders = isTreeRootSubfolder ? dirtyFoldersInsideTreeRoot : dirtyFoldersOutsideTreeRoot;
+                        if (!files.has(folderPath)) {
+                            // folder was removed; dirty state will be handled by parent folder
+                            this.loadedFolderElements.delete(folderPath);
+                        } else if (hasChanged(folderPath, isTreeRootSubfolder)) {
+                            dirtyFolders.push(folderPath);
+                        }
+                    }
 
-                // clean up old subfolder entries of minDirtyFolders in loadedFolderElements
-                // note that the folders in minDirtyFolders are kept so that events can be sent
-                // (those entries will be overwritten anyway after the tree update)
-                for (const dirtyFolder of minDirtyFolders) {
-                    const dirtyPrefix = dirtyFolder + path.sep;
-                    for (const loadedFolder of this.loadedFolderElements.keys()) {
-                        if (loadedFolder.startsWith(dirtyPrefix)) {
-                            this.loadedFolderElements.delete(loadedFolder);
+                    // merge all subfolder changes with parent changes to obtain minimal set of change events
+                    for (const dirtyFolders of [dirtyFoldersInsideTreeRoot, dirtyFoldersOutsideTreeRoot]) {
+                        dirtyFolders.sort();
+                        let lastAddedFolder = '';
+                        for (const dirtyFolder of dirtyFolders) {
+                            if (!dirtyFolder.startsWith(lastAddedFolder + path.sep)) {
+                                minDirtyFolders.push(dirtyFolder);
+                                lastAddedFolder = dirtyFolder;
+                            }
+                        }
+                    }
+
+                    // clean up old subfolder entries of minDirtyFolders in loadedFolderElements
+                    // note that the folders in minDirtyFolders are kept so that events can be sent
+                    // (those entries will be overwritten anyway after the tree update)
+                    for (const dirtyFolder of minDirtyFolders) {
+                        const dirtyPrefix = dirtyFolder + path.sep;
+                        for (const loadedFolder of this.loadedFolderElements.keys()) {
+                            if (loadedFolder.startsWith(dirtyPrefix)) {
+                                this.loadedFolderElements.delete(loadedFolder);
+                            }
                         }
                     }
                 }
@@ -692,6 +724,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 await this.updateRefs(this.baseRef);
                 await this.updateDiff(false);
             }
+            this.loadedFolderElements.clear();
             this._onDidChangeTreeData.fire();
         }
     }
@@ -699,22 +732,42 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot: boolean): FileSystemElement[] {
         const entries: FileSystemElement[] = [];
         const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
+        const relPathBase = useFilesOutsideTreeRoot ? this.repoRoot : this.treeRoot;
 
-        // add direct subfolders
-        for (const folder2 of files.keys()) {
-            if (path.dirname(folder2) === folder) {
-                entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
+        if (this.viewAsList) {
+            // add files of direct and nested subfolders
+            const folders: string[] = [];
+            for (const folder2 of files.keys()) {
+                if (folder2.startsWith(folder + path.sep)) {
+                    folders.push(folder2);
+                }
             }
+            folders.sort((a, b) => a.localeCompare(b));
+            for (const folder2 of folders) {
+                const fileEntries = files.get(folder2)!;
+                for (const file of fileEntries) {
+                    const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
+                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                }
+            }
+        } else {
+            // add direct subfolders
+            for (const folder2 of files.keys()) {
+                if (path.dirname(folder2) === folder) {
+                    entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
+                }
+            }
+            entries.sort((a, b) => path.basename(a.dstAbsPath).localeCompare(path.basename(b.dstAbsPath)));
         }
-        entries.sort((a, b) => path.basename(a.dstAbsPath).localeCompare(path.basename(b.dstAbsPath)));
 
-        // add files
+        // add files of folder
         const fileEntries = files.get(folder);
         // there is no mapping entry if treeRoot!=repoRoot and
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, file.status, file.isSubmodule));
+                const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
+                entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
             }
         }
 
@@ -881,13 +934,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('diffMode', 'full', true);
     }
 
+    viewAsTree(v: boolean) {
+        const viewAsList = !v;
+        if (viewAsList === this.viewAsList)
+            return;
+        this.viewAsList = viewAsList;
+        commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
+        this.log('Updating full tree');
+        this.loadedFolderElements.clear();
+        this._onDidChangeTreeData.fire();
+    }
+
     dispose(): void {
         this.disposables.forEach(d => d.dispose());
     }
 }
 
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
-                    showCollapsed: boolean,
+                    showCollapsed: boolean, viewAsList: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
@@ -896,6 +960,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.tooltip = element.dstAbsPath;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
+        }
+        if (viewAsList) {
+            item.description = path.dirname(element.dstRelPath);
+            if (item.description === '.') {
+                item.description = '';
+            }
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;

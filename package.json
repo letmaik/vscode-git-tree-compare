@@ -47,7 +47,9 @@
         "onCommand:gitTreeCompare.changeBase",
         "onCommand:gitTreeCompare.refresh",
         "onCommand:gitTreeCompare.switchToFullDiff",
-        "onCommand:gitTreeCompare.switchToMergeDiff"
+        "onCommand:gitTreeCompare.switchToMergeDiff",
+        "onCommand:gitTreeCompare.showAsList",
+        "onCommand:gitTreeCompare.showAsTree"
     ],
     "extensionDependencies": [
         "vscode.git"
@@ -125,6 +127,18 @@
                 "command": "gitTreeCompare.switchToMergeDiff",
                 "title": "Switch to Merge Diff",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.viewAsList",
+                "title": "View as List",
+                "icon": "$(list-flat)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.viewAsTree",
+                "title": "View as Tree",
+                "icon": "$(list-tree)",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -136,7 +150,7 @@
                 {
                     "command": "gitTreeCompare.changeRepository",
                     "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1",
-                    "group": "navigation"
+                    "group": "navigation@2"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
@@ -157,7 +171,7 @@
                 {
                     "command": "gitTreeCompare.refresh",
                     "when": "view == gitTreeCompare",
-                    "group": "navigation"
+                    "group": "navigation@3"
                 },
                 {
                     "command": "gitTreeCompare.switchToFullDiff",
@@ -166,6 +180,16 @@
                 {
                     "command": "gitTreeCompare.switchToMergeDiff",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == full"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsList",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.viewAsList",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsTree",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "navigation@1"
                 }
             ],
             "view/item/context": [
@@ -280,7 +304,7 @@
                         "workspace",
                         "repository"
                     ],
-                    "description": "The root of the tree when the workspace folder is not the same as the repository root.",
+                    "description": "The root of the tree when the workspace folder is not the same as the repository root. Has no effect if view is set to list.",
                     "default": "workspace"
                 },
                 "gitTreeCompare.includeFilesOutsideWorkspaceRoot": {
