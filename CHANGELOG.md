@@ -1,6 +1,6 @@
 ## 1.12.0
 
-* Add button to switch between list and tree [#26](https://github.com/letmaik/vscode-git-tree-compare/issues/
+* Add button to switch between list and tree [#26](https://github.com/letmaik/vscode-git-tree-compare/issues/)
 * Add custom tree view container for better discoverability [#68](https://github.com/letmaik/vscode-git-tree-compare/issues/68)
 * Shorten tree view title
 
