@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch, tag, or commit in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.12.0",
+    "version": "1.12.1",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -304,7 +304,7 @@
                         "workspace",
                         "repository"
                     ],
-                    "description": "The root of the tree when the workspace folder is not the same as the repository root. Has no effect if view is set to list.",
+                    "description": "The root of the tree when the workspace folder is not the same as the repository root.",
                     "default": "workspace"
                 },
                 "gitTreeCompare.includeFilesOutsideWorkspaceRoot": {

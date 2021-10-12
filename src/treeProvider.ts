@@ -713,12 +713,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 return;
             }
 
+            const oldTreeRoot = this.treeRoot;
             if (oldTreeRootIsRepo != this.treeRootIsRepo) {
                 this.updateTreeRootFolder();
             }
             
             if (oldFullDiff != this.fullDiff || 
                 oldFindRenames != this.findRenames ||
+                oldTreeRoot != this.treeRoot ||
                 (!oldAutoRefresh && this.autoRefresh) ||
                 (!oldRefreshIndex && this.refreshIndex)) {
                 await this.updateRefs(this.baseRef);

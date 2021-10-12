@@ -1,3 +1,7 @@
+## 1.12.1
+
+* Fix partly stale tree if "root" config value is changed
+
 ## 1.12.0
 
 * Add button to switch between list and tree [#26](https://github.com/letmaik/vscode-git-tree-compare/issues/)
