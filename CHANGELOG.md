@@ -1,3 +1,7 @@
+## Unreleased
+
+* Append diff status to file item tooltips
+
 ## 1.12.1
 
 * Fix partly stale tree if "root" config value is changed

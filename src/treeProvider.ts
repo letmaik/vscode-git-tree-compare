@@ -959,7 +959,8 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     if (element instanceof FileElement) {
         const label = path.basename(element.dstAbsPath);
         const item = new TreeItem(label);
-        item.tooltip = element.dstAbsPath;
+        const statusText = getStatusText(element);
+        item.tooltip = `${element.dstAbsPath} • ${statusText}`;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
         }
@@ -1025,6 +1026,18 @@ function toIconName(element: FileElement) {
         case 'C': return 'status-conflict';
         case 'T': return 'status-typechange';
         case 'R': return 'status-renamed';
+    }
+}
+
+function getStatusText(element: FileElement) {
+    switch(element.status) {
+        case 'U': return 'Untracked';
+        case 'A': return 'Added';
+        case 'D': return 'Deleted';
+        case 'M': return 'Modified';
+        case 'C': return 'Conflict';
+        case 'T': return 'Type changed';
+        case 'R': return 'Renamed';
     }
 }
 
