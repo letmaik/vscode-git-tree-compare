@@ -1,5 +1,6 @@
-## Unreleased
+## 1.13.0
 
+* Add option to compact single-child folders [#27](https://github.com/letmaik/vscode-git-tree-compare/issues/27)
 * Append diff status to file item tooltips
 
 ## 1.12.1

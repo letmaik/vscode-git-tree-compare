@@ -23,17 +23,22 @@ class FileElement implements IDiffStatus {
         public dstRelPath: string,
         public status: StatusCode,
         public isSubmodule: boolean) {}
+    
+    get label(): string {
+        return path.basename(this.dstAbsPath)
+    }
 }
 
 class FolderElement {
     constructor(
+        public label: string,
         public dstAbsPath: string,
         public useFilesOutsideTreeRoot: boolean) {}
 }
 
 class RepoRootElement extends FolderElement {
     constructor(absPath: string) {
-        super(absPath, true);
+        super('/', absPath, true);
     }
 }
 
@@ -95,6 +100,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private fullDiff: boolean;
     private findRenames: boolean;
     private showCollapsed: boolean;
+    private compactFolders: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -324,6 +330,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.fullDiff = config.get<string>('diffMode') === 'full';
         this.findRenames = config.get<boolean>('findRenames', true);
         this.showCollapsed = config.get<boolean>('collapsed', false);
+        this.compactFolders = config.get<boolean>('compactFolders', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -534,7 +541,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
                 doFullRefresh = true;
             } else {
-                if (this.viewAsList) {
+                if (this.viewAsList || this.compactFolders) {
+                    // This block was only meant for viewAsList,
+                    // but it's also used for compactFolders as a
+                    // short-cut to avoid a bigger redesign.
+
                     // check if any folder has changed
                     for (const folder of filesInsideTreeRoot.keys()) {
                         if (hasChanged(folder, true)) {
@@ -699,6 +710,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldIconsMinimal = this.iconsMinimal;
         const oldFullDiff = this.fullDiff;
         const oldFindRenames = this.findRenames;
+        const oldCompactFolders = this.compactFolders;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -707,7 +719,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             (!oldAutoRefresh && this.autoRefresh) ||
             (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
-            oldFindRenames != this.findRenames) {
+            oldFindRenames != this.findRenames ||
+            oldCompactFolders != this.compactFolders) {
 
             if (!this.repository) {
                 return;
@@ -744,6 +757,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     folders.push(folder2);
                 }
             }
+            // TODO sorting should be folder-aware to match SCM view
             folders.sort((a, b) => a.localeCompare(b));
             for (const folder2 of folders) {
                 const fileEntries = files.get(folder2)!;
@@ -752,11 +766,47 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
                 }
             }
+        } else if (this.compactFolders) {
+            // add direct subfolders and apply compaction
+            for (const folder2 of files.keys()) {
+                if (path.dirname(folder2) === folder) {
+                    let compactedPath = folder2;
+                    // not very efficient, needs a better data structure
+                    outer: while (true) {
+                        const hasFiles = files.get(compactedPath)!.length > 0;
+                        if (hasFiles) {
+                            break;
+                        }
+                        let subfolder: string | null = null;
+                        for (const folder3 of files.keys()) {
+                            if (path.dirname(folder3) === compactedPath) {
+                                if (subfolder === null) {
+                                    subfolder = folder3;
+                                } else {
+                                    subfolder = null;
+                                    break outer;
+                                }
+                            }
+                        }
+                        if (subfolder === null) {
+                            throw new Error('unexpected');
+                        }
+                        compactedPath = subfolder;
+                    }
+
+                    const label = path.relative(folder, compactedPath);
+                    entries.push(new FolderElement(
+                        label, compactedPath, useFilesOutsideTreeRoot));
+                }
+            }
+            entries.sort((a, b) => a.label.split(path.sep, 1)[0].localeCompare(b.label.split(path.sep, 1)[0]));
         } else {
             // add direct subfolders
             for (const folder2 of files.keys()) {
                 if (path.dirname(folder2) === folder) {
-                    entries.push(new FolderElement(folder2, useFilesOutsideTreeRoot));
+                    const label = path.basename(folder2);
+                    entries.push(new FolderElement(
+                        label, folder2, useFilesOutsideTreeRoot));
                 }
             }
             entries.sort((a, b) => path.basename(a.dstAbsPath).localeCompare(path.basename(b.dstAbsPath)));
@@ -957,8 +1007,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
-        const label = path.basename(element.dstAbsPath);
-        const item = new TreeItem(label);
+        const item = new TreeItem(element.label);
         const statusText = getStatusText(element);
         item.tooltip = `${element.dstAbsPath} • ${statusText}`;
         if (element.srcAbsPath !== element.dstAbsPath) {
@@ -983,8 +1032,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         return item;
     } else if (element instanceof RepoRootElement) {
-        const label = '/';
-        const item = new TreeItem(label, TreeItemCollapsibleState.Collapsed);
+        const item = new TreeItem(element.label, TreeItemCollapsibleState.Collapsed);
         item.tooltip = element.dstAbsPath;
         item.contextValue = 'root';
         item.id = 'root'
@@ -993,8 +1041,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         return item;
     } else if (element instanceof FolderElement) {
-        const label = path.basename(element.dstAbsPath);
-        const item = new TreeItem(label, showCollapsed ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.Expanded);
+        const item = new TreeItem(element.label, showCollapsed ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.Expanded);
         item.tooltip = element.dstAbsPath;
         item.contextValue = 'folder';
         item.id = element.dstAbsPath;
