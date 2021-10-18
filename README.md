@@ -24,6 +24,12 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Log output of all git commands run
 
+## Location
+
+By default, the tree view is located in its own container accessible from the activity bar on the left. However, it can be freely moved to any other location like Source Control or Explorer by dragging and dropping.
+
+<img src="screenshots/move-view.png" alt="Moving of Git Tree Compare view between containers" width="256" />
+
 ## Settings
 
 `gitTreeCompare.diffMode` Determines how the comparison is performed, either by computing a merge base commit first and then comparing against that (equivalent to pull request diffs, default), or by comparing directly to the given base (useful to see the exact diff).
