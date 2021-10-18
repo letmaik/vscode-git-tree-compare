@@ -1,4 +1,4 @@
-## Unreleased
+## 1.13.1
 
 * Fixed tree refresh when only the diff status changes [#80](https://github.com/letmaik/vscode-git-tree-compare/issues/80)
 * Fixed corner-case tree refresh when Compact Folders or View as List is used
