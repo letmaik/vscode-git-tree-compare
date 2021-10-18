@@ -522,8 +522,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
                 const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
                 const newFiles = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
-                const oldItems = oldFiles.get(folderPath)!.map(f => f.dstAbsPath);
-                const newItems = newFiles.get(folderPath)!.map(f => f.dstAbsPath);
+                const oldItems = oldFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
+                const newItems = newFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
                 for (const {files, items} of [{files: oldFiles, items: oldItems},
                                               {files: newFiles, items: newItems}]) {
                     // add direct subdirectories to items list

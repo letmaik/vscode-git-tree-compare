@@ -1,3 +1,7 @@
+## Unreleased
+
+* Fixed tree refresh when only the diff status changes [#80](https://github.com/letmaik/vscode-git-tree-compare/issues/80)
+
 ## 1.13.0
 
 * Add option to compact single-child folders [#27](https://github.com/letmaik/vscode-git-tree-compare/issues/27)
