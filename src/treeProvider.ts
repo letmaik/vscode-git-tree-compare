@@ -131,7 +131,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // UI state
     private treeView: TreeView<Element>;
     private isPaused: boolean;
-    private readonly loadedFolderElements = new Map<FolderAbsPath, FolderElement>();
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -395,7 +394,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
         } else if (element instanceof FolderElement) {
-            this.loadedFolderElements.set(element.dstAbsPath, element);
             return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
         }
         assert(false, "unsupported element type");
@@ -515,9 +513,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             entries.push(entry);
         }
 
-        // determine folders in the old diff which have changed entries and fire change events
-        const minDirtyFolders: string[] = [];
-        let doFullRefresh = false;
+        let treeHasChanged = false;
         if (fireChangeEvents) {
             const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
                 const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
@@ -539,73 +535,21 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const treeRootChanged = !this.filesInsideTreeRoot || !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
             const mustAddOrRemoveRepoRootElement = !this.filesOutsideTreeRoot || !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
             if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
-                doFullRefresh = true;
+                treeHasChanged = true;
             } else {
-                if (this.viewAsList || this.compactFolders) {
-                    // This block was only meant for viewAsList,
-                    // but it's also used for compactFolders as a
-                    // short-cut to avoid a bigger redesign.
-
-                    // check if any folder has changed
-                    for (const folder of filesInsideTreeRoot.keys()) {
-                        if (!this.filesInsideTreeRoot.has(folder) ||
-                              hasChanged(folder, true)) {
-                            doFullRefresh = true;
+                for (const folder of filesInsideTreeRoot.keys()) {
+                    if (!this.filesInsideTreeRoot.has(folder) ||
+                            hasChanged(folder, true)) {
+                        treeHasChanged = true;
+                        break;
+                    }
+                }
+                if (!treeHasChanged) {
+                    for (const folder of filesOutsideTreeRoot.keys()) {
+                        if (!this.filesOutsideTreeRoot.has(folder) ||
+                                hasChanged(folder, false)) {
+                            treeHasChanged = true;
                             break;
-                        }
-                    }
-                    if (!doFullRefresh) {
-                        // If the special root node is displayed and only
-                        // files inside there changed, then this could be
-                        // optimized further by only updating that node.
-                        for (const folder of filesOutsideTreeRoot.keys()) {
-                            if (!this.filesOutsideTreeRoot.has(folder) ||
-                                  hasChanged(folder, false)) {
-                                doFullRefresh = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!doFullRefresh) {
-                        fireChangeEvents = false;
-                    }
-                } else {
-                    // collect all folders which had direct changes (not in subfolders)
-                    const dirtyFoldersInsideTreeRoot: string[] = [];
-                    const dirtyFoldersOutsideTreeRoot: string[] = [];
-                    for (const folderPath of this.loadedFolderElements.keys()) {
-                        const isTreeRootSubfolder = folderPath.startsWith(this.treeRoot + path.sep);
-                        const files = isTreeRootSubfolder ? filesInsideTreeRoot : filesOutsideTreeRoot;
-                        const dirtyFolders = isTreeRootSubfolder ? dirtyFoldersInsideTreeRoot : dirtyFoldersOutsideTreeRoot;
-                        if (!files.has(folderPath)) {
-                            // folder was removed; dirty state will be handled by parent folder
-                            this.loadedFolderElements.delete(folderPath);
-                        } else if (hasChanged(folderPath, isTreeRootSubfolder)) {
-                            dirtyFolders.push(folderPath);
-                        }
-                    }
-
-                    // merge all subfolder changes with parent changes to obtain minimal set of change events
-                    for (const dirtyFolders of [dirtyFoldersInsideTreeRoot, dirtyFoldersOutsideTreeRoot]) {
-                        dirtyFolders.sort();
-                        let lastAddedFolder = '';
-                        for (const dirtyFolder of dirtyFolders) {
-                            if (!dirtyFolder.startsWith(lastAddedFolder + path.sep)) {
-                                minDirtyFolders.push(dirtyFolder);
-                                lastAddedFolder = dirtyFolder;
-                            }
-                        }
-                    }
-
-                    // clean up old subfolder entries of minDirtyFolders in loadedFolderElements
-                    // note that the folders in minDirtyFolders are kept so that events can be sent
-                    // (those entries will be overwritten anyway after the tree update)
-                    for (const dirtyFolder of minDirtyFolders) {
-                        const dirtyPrefix = dirtyFolder + path.sep;
-                        for (const loadedFolder of this.loadedFolderElements.keys()) {
-                            if (loadedFolder.startsWith(dirtyPrefix)) {
-                                this.loadedFolderElements.delete(loadedFolder);
-                            }
                         }
                     }
                 }
@@ -615,25 +559,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
-        if (fireChangeEvents) {
-            if (doFullRefresh) {
-                this.log('Full tree refresh')
-                this.loadedFolderElements.clear();
-                this._onDidChangeTreeData.fire();
-            } else {
-                if (minDirtyFolders.length) {
-                    this.log('Tree changes:');
-                } else {
-                    this.log('No tree changes');
-                }
-                // send events to trigger tree refresh
-                for (const dirtyFolder of minDirtyFolders) {
-                    this.log('  ' + path.relative(this.repoRoot, dirtyFolder));
-                    const element = this.loadedFolderElements.get(dirtyFolder);
-                    assert(element !== undefined)
-                    this._onDidChangeTreeData.fire(element);
-                }
-            }
+        if (fireChangeEvents && treeHasChanged) {
+            this.log('Refreshing tree')
+            this._onDidChangeTreeData.fire();
         }
     }
 
@@ -741,7 +669,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 await this.updateRefs(this.baseRef);
                 await this.updateDiff(false);
             }
-            this.loadedFolderElements.clear();
             this._onDidChangeTreeData.fire();
         }
     }
@@ -955,9 +882,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.filesInsideTreeRoot = new Map();
                 this.filesOutsideTreeRoot = new Map();
             }
-            // manual cleaning necessary as the whole tree is updated
-            this.log('Updating full tree');
-            this.loadedFolderElements.clear();
+            this.log('Refreshing tree');
             this._onDidChangeTreeData.fire();
         });
     }
@@ -994,8 +919,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         this.viewAsList = viewAsList;
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
-        this.log('Updating full tree');
-        this.loadedFolderElements.clear();
+        this.log('Refreshing tree');
         this._onDidChangeTreeData.fire();
     }
 

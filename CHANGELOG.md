@@ -1,3 +1,8 @@
+## 1.13.2
+
+* Added animated gif to README showing how to move tree view between containers
+* Fixed corner-case tree refresh issue with non-compact/non-list mode [#64](https://github.com/letmaik/vscode-git-tree-compare/issues/64)
+
 ## 1.13.1
 
 * Fixed tree refresh when only the diff status changes [#80](https://github.com/letmaik/vscode-git-tree-compare/issues/80)
@@ -5,17 +10,17 @@
 
 ## 1.13.0
 
-* Add option to compact single-child folders [#27](https://github.com/letmaik/vscode-git-tree-compare/issues/27)
+* Added option to compact single-child folders [#27](https://github.com/letmaik/vscode-git-tree-compare/issues/27)
 * Append diff status to file item tooltips
 
 ## 1.12.1
 
-* Fix partly stale tree if "root" config value is changed
+* Fixed partly stale tree if "root" config value is changed
 
 ## 1.12.0
 
-* Add button to switch between list and tree [#26](https://github.com/letmaik/vscode-git-tree-compare/issues/)
-* Add custom tree view container for better discoverability [#68](https://github.com/letmaik/vscode-git-tree-compare/issues/68)
+* Added button to switch between list and tree [#26](https://github.com/letmaik/vscode-git-tree-compare/issues/)
+* Added custom tree view container for better discoverability [#68](https://github.com/letmaik/vscode-git-tree-compare/issues/68)
 * Shorten tree view title
 
 ## 1.11.0
@@ -25,7 +30,7 @@
 
 ## 1.10.3
 
-* Add option to show folders collapsed instead of expanded [#78](https://github.com/letmaik/vscode-git-tree-compare/issues/78)
+* Added option to show folders collapsed instead of expanded [#78](https://github.com/letmaik/vscode-git-tree-compare/issues/78)
 
 ## 1.10.2
 
@@ -38,7 +43,7 @@
 
 ## 1.10.0
 
-* Add experimental option to automatically change repository when SCM selection changes [#70](https://github.com/letmaik/vscode-git-tree-compare/issues/70)
+* Added experimental option to automatically change repository when SCM selection changes [#70](https://github.com/letmaik/vscode-git-tree-compare/issues/70)
 * Disable automatic refreshes when extension view is not visible [#71](https://github.com/letmaik/vscode-git-tree-compare/issues/71)
 
 ## 1.9.2
