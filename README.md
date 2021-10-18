@@ -28,7 +28,7 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 By default, the tree view is located in its own container accessible from the activity bar on the left. However, it can be freely moved to any other location like Source Control or Explorer by dragging and dropping.
 
-<img src="screenshots/move-view.png" alt="Moving of Git Tree Compare view between containers" width="256" />
+<img src="screenshots/move-view.gif" alt="Moving of Git Tree Compare view between containers" width="256" />
 
 ## Settings
 
