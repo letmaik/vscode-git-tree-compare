@@ -534,7 +534,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             const treeRootChanged = !this.filesInsideTreeRoot || !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
             const mustAddOrRemoveRepoRootElement = !this.filesOutsideTreeRoot || !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
-            if (treeRootChanged || mustAddOrRemoveRepoRootElement || (filesInsideTreeRoot.size && hasChanged(this.treeRoot, true))) {
+            if (treeRootChanged || mustAddOrRemoveRepoRootElement) {
                 treeHasChanged = true;
             } else {
                 for (const folder of filesInsideTreeRoot.keys()) {
