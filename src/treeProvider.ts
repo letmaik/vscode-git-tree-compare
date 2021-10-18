@@ -548,7 +548,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
                     // check if any folder has changed
                     for (const folder of filesInsideTreeRoot.keys()) {
-                        if (hasChanged(folder, true)) {
+                        if (!this.filesInsideTreeRoot.has(folder) ||
+                              hasChanged(folder, true)) {
                             doFullRefresh = true;
                             break;
                         }
@@ -558,7 +559,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         // files inside there changed, then this could be
                         // optimized further by only updating that node.
                         for (const folder of filesOutsideTreeRoot.keys()) {
-                            if (hasChanged(folder, false)) {
+                            if (!this.filesOutsideTreeRoot.has(folder) ||
+                                  hasChanged(folder, false)) {
                                 doFullRefresh = true;
                                 break;
                             }
