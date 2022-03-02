@@ -1,3 +1,7 @@
+## 1.14.0
+
+* Allow "Open Changes" and "Open File" commands to be called from the command palette for the active text editor [#84](https://github.com/letmaik/vscode-git-tree-compare/issues/84)
+
 ## 1.13.2
 
 * Added animated gif to README showing how to move tree view between containers

@@ -755,8 +755,28 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return entries
     }
 
-    async openChanges(fileEntry: FileElement) {
-        await this.doOpenChanges(fileEntry.srcAbsPath, fileEntry.dstAbsPath, fileEntry.status);
+    private getDiffStatus(fileEntry?: FileElement): IDiffStatus | undefined {
+        if (fileEntry) {
+            return fileEntry;
+        }
+        const uri = window.activeTextEditor && window.activeTextEditor.document.uri;
+        if (!uri || uri.scheme !== 'file') {
+            return;
+        }
+        const dstAbsPath = uri.fsPath;
+        const folder = path.dirname(dstAbsPath);
+        const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
+        const files = isInsideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
+        const diffStatus = files.get(folder)?.find(file => file.dstAbsPath === dstAbsPath);
+        return diffStatus;
+    }
+
+    async openChanges(fileEntry?: FileElement) {
+        const diffStatus = this.getDiffStatus(fileEntry);
+        if (!diffStatus) {
+            return;
+        }
+        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
     }
 
     async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
@@ -785,8 +805,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    async openFile(fileEntry: FileElement) {
-        return this.doOpenFile(fileEntry.dstAbsPath, fileEntry.status);
+    async openFile(fileEntry?: FileElement) {
+        const diffStatus = this.getDiffStatus(fileEntry);
+        if (!diffStatus) {
+            return;
+        }
+        return this.doOpenFile(diffStatus.dstAbsPath, diffStatus.status);
     }
 
     async doOpenFile(dstAbsPath: string, status: StatusCode, preview=false) {

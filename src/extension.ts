@@ -18,22 +18,6 @@ export function activate(context: ExtensionContext) {
 
     let provider: GitTreeCompareProvider | null = null;
 
-    commands.registerCommand(NAMESPACE + '.openChanges', node => {
-        if (!node) {
-            window.showInformationMessage('Right-click on a file in the tree view to use this command.');
-            return;
-        }
-        provider!.openChanges(node);
-    });
-
-    commands.registerCommand(NAMESPACE + '.openFile', node => {
-        if (!node) {
-            window.showInformationMessage('Right-click on a file in the tree view to use this command.');
-            return;
-        }
-        provider!.openFile(node);
-    });
-
     let runAfterInit = (fn: () => any) => {
         if (provider == null) {
             setTimeout(() => runAfterInit(fn), 100);
@@ -41,6 +25,18 @@ export function activate(context: ExtensionContext) {
             fn();
         }
     }
+
+    commands.registerCommand(NAMESPACE + '.openChanges', node => {
+        runAfterInit(() => {
+            provider!.openChanges(node);
+        });
+    });
+
+    commands.registerCommand(NAMESPACE + '.openFile', node => {
+        runAfterInit(() => {
+            provider!.openFile(node);
+        });
+    });
 
     commands.registerCommand(NAMESPACE + '.changeRepository', () => {
         runAfterInit(() => {
