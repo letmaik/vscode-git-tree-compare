@@ -1,5 +1,6 @@
 import * as assert from 'assert'
 import * as path from 'path'
+import * as fs from 'fs'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
@@ -11,7 +12,7 @@ import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
-         getWorkspaceFolders, getGitRepositoryFolders } from './gitHelper'
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
@@ -823,6 +824,130 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return commands.executeCommand('vscode.open', uri, options);
     }
 
+    async discardChanges(entry?: FileElement | FolderElement) {
+        let statuses: IDiffStatus[] = [];
+        if (entry instanceof FolderElement) {
+            statuses = [...this.iterFiles(entry.dstAbsPath)];
+        } else {
+            const diffStatus = this.getDiffStatus(entry);
+            if (diffStatus) {
+                statuses.push(diffStatus);
+            }
+        }
+        await this.doDiscardChanges(statuses);
+    }
+
+    async discardAllChanges() {
+        const statuses = [...this.iterFiles()];
+        await this.doDiscardChanges(statuses);
+    }
+
+    async doDiscardChanges(statuses: IDiffStatus[]) {
+        if (statuses.length === 0) {
+            return;
+        }
+        const actions: Function[] = [];
+        const prompts: [string, string][] = [];
+        const uncommittedChanges: string[] = [];
+
+        for (const diffStatus of statuses) {
+            const filename = path.basename(diffStatus.dstAbsPath);
+            if (diffStatus.status === 'U') {
+                uncommittedChanges.push(filename);
+                prompts.push([
+                    `Do you really want to DELETE ${filename}?\nThis is IRREVERSIBLE!\nThis file will be FOREVER LOST if you proceed.`,
+                    'Delete File'
+                ]);
+                actions.push(async () => {
+                    fs.unlinkSync(diffStatus.dstAbsPath);
+                });
+            } else if (diffStatus.status === 'A') {
+                const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                let msg = `Do you really want to delete ${filename}?`;
+                if (dirty) {
+                    uncommittedChanges.push(filename);
+                    msg = `${msg}\nThis file has UNCOMMITTED changes which will be FOREVER LOST!`;
+                }
+                prompts.push([msg, 'Delete File']);
+                actions.push(async () => {
+                    await rmFile(this.repository!, diffStatus.dstAbsPath);
+                });
+            } else if (diffStatus.status === 'M' || diffStatus.status === 'D') {
+                let msg = `Do you really want to restore ${filename} with the contents from ${this.baseRef}?`;
+                if (diffStatus.status !== 'D') {
+                    const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                    if (dirty) {
+                        uncommittedChanges.push(filename);
+                        msg = `${msg}\nThis file has UNCOMMITTED changes which will be FOREVER LOST!`;
+                    }
+                }
+                prompts.push([msg, 'Restore File']);
+                actions.push(async () => {
+                    await this.repository!.checkout(this.baseRef, [diffStatus.dstAbsPath]);
+                });
+            } else if (diffStatus.status === 'R') {
+                const srcFolder = path.dirname(diffStatus.srcAbsPath);
+                const dstFolder = path.dirname(diffStatus.dstAbsPath);
+                let srcFile: string;
+                let dstFile: string;
+                let verb: string;
+                if (srcFolder === dstFolder) {
+                    verb = 'rename';
+                    srcFile = path.basename(diffStatus.srcAbsPath);
+                    dstFile = path.basename(diffStatus.dstAbsPath);
+                } else {
+                    verb = 'move';
+                    const relPathBase = this.treeRoot;
+                    srcFile = path.relative(relPathBase, diffStatus.srcAbsPath);
+                    dstFile = path.relative(relPathBase, diffStatus.dstAbsPath);
+                }
+                let msg = `Do you really want to ${verb} ${srcFile} to ${dstFile} and restore contents from ${this.baseRef}?`;
+                const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                if (dirty) {
+                    uncommittedChanges.push(filename);
+                    msg = `${msg}\nThis file has UNCOMMITTED changes which will be FOREVER LOST!`;
+                }
+                prompts.push([msg, 'Restore File']);
+                actions.push(async () => {
+                    await rmFile(this.repository!, diffStatus.dstAbsPath);
+                    await this.repository!.checkout(this.baseRef, [diffStatus.srcAbsPath]);
+                });
+            } else {
+                window.showInformationMessage(
+                    `Discarding changes for files with git status ${diffStatus.status} is not yet supported.`);
+            }
+        }
+
+        if (prompts.length === 1) {
+            const [msg, btn] = prompts[0];
+            const answer = await window.showWarningMessage(
+                msg,
+                { modal: true },
+                btn);
+            if (answer !== btn) {
+                return;
+            }
+            actions[0]();
+        } else {
+            let msg = `Are you sure you want to discard changes in ${prompts.length} files?`;
+            if (uncommittedChanges.length > 0) {
+                msg = `${msg}\n\nThe following files have UNCOMMITTED changes which will be FOREVER LOST:\n` +
+                    uncommittedChanges.map(f => `${f}`).join('\n');
+            }
+            const btn = 'Discard Changes';
+            const answer = await window.showWarningMessage(
+                msg,
+                { modal: true },
+                btn);
+            if (answer !== btn) {
+                return;
+            }
+            for (const action of actions) {
+                await action();
+            }
+        }
+    }
+
     openChangedFiles(entry: RefElement | RepoRootElement | FolderElement | undefined) {
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
         for (const file of this.iterFiles(withinFolder)) {
@@ -833,7 +958,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    *iterFiles(withinFolder: string | undefined) {
+    *iterFiles(withinFolder: string | undefined = undefined) {
         for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
             for (let [folder, files] of filesMap.entries()) {
                 if (withinFolder && !folder.startsWith(withinFolder)) {

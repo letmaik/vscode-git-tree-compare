@@ -1,3 +1,7 @@
+## 1.15.0
+
+* Added "Discard Changes" button to restore files with contents from the base ref [#90](https://github.com/letmaik/vscode-git-tree-compare/issues/90)
+
 ## 1.14.0
 
 * Allow "Open Changes" and "Open File" commands to be called from the command palette for the active text editor [#84](https://github.com/letmaik/vscode-git-tree-compare/issues/84)
