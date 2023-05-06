@@ -242,3 +242,12 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
     return statuses;
 }
+
+export async function hasUncommittedChanges(repo: Repository, path: string): Promise<boolean> {
+    const result = await repo.exec(['status', '-z', path]);
+    return result.stdout.trim() !== '';
+}
+
+export async function rmFile(repo: Repository, absPath: string): Promise<void> {
+    await repo.exec(['rm', '-f', absPath]);
+}

@@ -2,7 +2,7 @@
     "name": "git-tree-compare",
     "displayName": "Git Tree Compare",
     "description": "Diff your worktree against a branch, tag, or commit in a tree -- especially useful for pull request preparation or merge preview",
-    "version": "1.14.0",
+    "version": "1.15.0",
     "author": {
         "name": "Maik Riechert",
         "url": "https://github.com/letmaik"
@@ -29,7 +29,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.60.0"
+        "vscode": "^1.75.0"
     },
     "capabilities": {
         "virtualWorkspaces": false,
@@ -37,20 +37,6 @@
             "supported": true
         }
     },
-    "activationEvents": [
-        "onView:gitTreeCompare",
-        "onCommand:gitTreeCompare.openChanges",
-        "onCommand:gitTreeCompare.openFile",
-        "onCommand:gitTreeCompare.openAllChanges",
-        "onCommand:gitTreeCompare.openChangedFiles",
-        "onCommand:gitTreeCompare.changeRepository",
-        "onCommand:gitTreeCompare.changeBase",
-        "onCommand:gitTreeCompare.refresh",
-        "onCommand:gitTreeCompare.switchToFullDiff",
-        "onCommand:gitTreeCompare.switchToMergeDiff",
-        "onCommand:gitTreeCompare.showAsList",
-        "onCommand:gitTreeCompare.showAsTree"
-    ],
     "extensionDependencies": [
         "vscode.git"
     ],
@@ -92,6 +78,18 @@
                 "command": "gitTreeCompare.openFile",
                 "title": "Open File",
                 "icon": "$(go-to-file)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.discardChanges",
+                "title": "Discard Changes",
+                "icon": "$(discard)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.discardAllChanges",
+                "title": "Discard All Changes",
+                "icon": "$(discard)",
                 "category": "Git Tree Compare"
             },
             {
@@ -165,6 +163,10 @@
                     "when": "view == gitTreeCompare"
                 },
                 {
+                    "command": "gitTreeCompare.discardAllChanges",
+                    "when": "view == gitTreeCompare"
+                },
+                {
                     "command": "gitTreeCompare.refresh",
                     "when": "view == gitTreeCompare"
                 },
@@ -204,12 +206,39 @@
                     "group": "inline"
                 },
                 {
+                    "command": "gitTreeCompare.discardChanges",
+                    "when": "view == gitTreeCompare && viewItem == file",
+                    "group": "inline"
+                },
+                {
+                    "command": "gitTreeCompare.discardChanges",
+                    "when": "view == gitTreeCompare && viewItem == folder",
+                    "group": "inline"
+                },
+                {
+                    "command": "gitTreeCompare.discardAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "inline"
+                },
+                {
                     "command": "gitTreeCompare.openChanges",
                     "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
                 },
                 {
                     "command": "gitTreeCompare.openFile",
                     "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges"
+                },
+                {
+                    "command": "gitTreeCompare.discardChanges",
+                    "when": "view == gitTreeCompare && viewItem == file"
+                },
+                {
+                    "command": "gitTreeCompare.discardChanges",
+                    "when": "view == gitTreeCompare && viewItem == folder"
+                },
+                {
+                    "command": "gitTreeCompare.discardAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == ref"
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",

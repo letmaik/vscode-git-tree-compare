@@ -37,6 +37,18 @@ export function activate(context: ExtensionContext) {
             provider!.openFile(node);
         });
     });
+    
+    commands.registerCommand(NAMESPACE + '.discardChanges', node => {
+        runAfterInit(() => {
+            provider!.discardChanges(node);
+        });
+    });
+    
+    commands.registerCommand(NAMESPACE + '.discardAllChanges', () => {
+        runAfterInit(() => {
+            provider!.discardAllChanges();
+        });
+    });
 
     commands.registerCommand(NAMESPACE + '.changeRepository', () => {
         runAfterInit(() => {
