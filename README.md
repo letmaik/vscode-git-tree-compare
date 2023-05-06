@@ -18,6 +18,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Open Changes or Open File
 
+- Discard Changes
+
 - Automatic refresh on file changes
 
 - Remembers the chosen comparison base per repository
