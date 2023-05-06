@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 16.x
+    
+    - run: npm install
+    
+    - run: npx vsce package
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: package
+        path: '*.vsix'
