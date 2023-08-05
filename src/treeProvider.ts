@@ -883,7 +883,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 }
                 prompts.push([msg, 'Restore File']);
                 actions.push(async () => {
-                    await this.repository!.checkout(this.baseRef, [diffStatus.dstAbsPath]);
+                    await this.repository!.checkout(this.mergeBase, [diffStatus.dstAbsPath]);
                 });
             } else if (diffStatus.status === 'R') {
                 const srcFolder = path.dirname(diffStatus.srcAbsPath);
@@ -910,7 +910,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 prompts.push([msg, 'Restore File']);
                 actions.push(async () => {
                     await rmFile(this.repository!, diffStatus.dstAbsPath);
-                    await this.repository!.checkout(this.baseRef, [diffStatus.srcAbsPath]);
+                    await this.repository!.checkout(this.mergeBase, [diffStatus.srcAbsPath]);
                 });
             } else {
                 window.showInformationMessage(

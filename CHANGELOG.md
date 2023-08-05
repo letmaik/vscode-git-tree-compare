@@ -1,3 +1,7 @@
+## 1.15.1
+
+* Fixed "Discard Changes" incorrectly restoring files to base ref instead of merge base 
+
 ## 1.15.0
 
 * Added "Discard Changes" button to restore files with contents from the base ref [#90](https://github.com/letmaik/vscode-git-tree-compare/issues/90)
