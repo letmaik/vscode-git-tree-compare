@@ -1,3 +1,8 @@
+## 1.16.0
+
+* Added option to show checkboxes to tick off reviewed files
+* Organized title menu items into groups
+
 ## 1.15.1
 
 * Fixed "Discard Changes" incorrectly restoring files to base ref instead of merge base 

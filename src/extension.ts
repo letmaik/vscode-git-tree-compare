@@ -77,6 +77,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.switchToMergeDiff', () => {
         runAfterInit(() => provider!.switchToMergeDiff());
     });
+    commands.registerCommand(NAMESPACE + '.showCheckboxes', () => {
+        runAfterInit(() => provider!.hideCheckboxes(false));
+    });
+    commands.registerCommand(NAMESPACE + '.hideCheckboxes', () => {
+        runAfterInit(() => provider!.hideCheckboxes(true));
+    });
     commands.registerCommand(NAMESPACE + '.viewAsList', () => {
         runAfterInit(() => provider!.viewAsTree(false));
     });

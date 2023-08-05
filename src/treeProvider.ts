@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon } from 'vscode'
+         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -102,6 +102,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private findRenames: boolean;
     private showCollapsed: boolean;
     private compactFolders: boolean;
+    private showCheckboxes: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -132,6 +133,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // UI state
     private treeView: TreeView<Element>;
     private isPaused: boolean;
+    private checkboxStates: Map<string, TreeItemCheckboxState> = new Map<string, TreeItemCheckboxState>();
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -182,6 +184,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
         const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, isRelevantChange);
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
+
+        this.disposables.push(treeView.onDidChangeCheckboxState(this.handleChangeCheckboxState, this));
     }
 
     async setRepository(repositoryRoot: string) {
@@ -236,6 +240,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             window.showErrorMessage(`${msg}: ${e.message}`);
             return;
         }
+        this.checkboxStates.clear();
         this._onDidChangeTreeData.fire();
     }
 
@@ -301,6 +306,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
+    private async handleChangeCheckboxState(e: TreeCheckboxChangeEvent<Element>) {
+        for (let [element, state] of e.items) {
+            if (element instanceof FileElement || element instanceof FolderElement) {
+                this.checkboxStates.set(element.dstAbsPath, state);
+            }
+        }
+    }
+
     private log(msg: string, error: Error | undefined=undefined) {
         if (error) {
             console.warn(msg, error);
@@ -331,6 +344,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.findRenames = config.get<boolean>('findRenames', true);
         this.showCollapsed = config.get<boolean>('collapsed', false);
         this.compactFolders = config.get<boolean>('compactFolders', false);
+        this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -366,7 +380,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     getTreeItem(element: Element): TreeItem {
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.asAbsolutePath);
+        let checkboxState: TreeItemCheckboxState | undefined;
+        if (this.showCheckboxes) {
+            if (element instanceof FileElement || element instanceof FolderElement) {
+                checkboxState = this.checkboxStates.get(element.dstAbsPath) ?? TreeItemCheckboxState.Unchecked;
+            }
+        }
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -456,6 +476,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             if (this.headName !== headName) {
                 this.log(`HEAD ref updated: ${this.headName} -> ${headName}`);
+                this.checkboxStates.clear();
             }
             if (this.headCommit !== headCommit) {
                 this.log(`HEAD ref commit updated: ${this.headCommit} -> ${headCommit}`);
@@ -642,6 +663,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldFullDiff = this.fullDiff;
         const oldFindRenames = this.findRenames;
         const oldCompactFolders = this.compactFolders;
+        const oldshowCheckboxes = this.showCheckboxes;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -651,7 +673,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
             oldFindRenames != this.findRenames ||
-            oldCompactFolders != this.compactFolders) {
+            oldCompactFolders != this.compactFolders ||
+            oldshowCheckboxes != this.showCheckboxes) {
 
             if (!this.repository) {
                 return;
@@ -1062,6 +1085,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('diffMode', 'full', true);
     }
 
+    async hideCheckboxes(v: boolean) {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('showCheckboxes', !v, true);
+    }
+
     viewAsTree(v: boolean) {
         const viewAsList = !v;
         if (viewAsList === this.viewAsList)
@@ -1079,6 +1107,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
                     showCollapsed: boolean, viewAsList: boolean,
+                    checkboxState: TreeItemCheckboxState | undefined,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
@@ -1097,6 +1126,9 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;
         item.iconPath = path.join(gitIconRoot,	toIconName(element) + '.svg');
+        if (checkboxState !== undefined) {
+            item.checkboxState = checkboxState;
+        }
         if (!element.isSubmodule) {
             const command = openChangesOnSelect ? 'openChanges' : 'openFile';
             item.command = {
@@ -1120,6 +1152,9 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.tooltip = element.dstAbsPath;
         item.contextValue = 'folder';
         item.id = element.dstAbsPath;
+        if (checkboxState !== undefined) {
+            item.checkboxState = checkboxState;
+        }
         if (!iconsMinimal) {
             item.iconPath = new ThemeIcon('folder-opened');
         }

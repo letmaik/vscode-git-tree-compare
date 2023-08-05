@@ -29,7 +29,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.75.0"
+        "vscode": "^1.81.0"
     },
     "capabilities": {
         "virtualWorkspaces": false,
@@ -127,6 +127,16 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.showCheckboxes",
+                "title": "Show checkboxes",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.hideCheckboxes",
+                "title": "Hide checkboxes",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.viewAsList",
                 "title": "View as List",
                 "icon": "$(list-flat)",
@@ -143,7 +153,8 @@
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1"
+                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1",
+                    "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",
@@ -152,23 +163,28 @@
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
-                    "when": "view == gitTreeCompare"
+                    "when": "view == gitTreeCompare",
+                    "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.openAllChanges",
-                    "when": "view == gitTreeCompare"
+                    "when": "view == gitTreeCompare",
+                    "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.openChangedFiles",
-                    "when": "view == gitTreeCompare"
+                    "when": "view == gitTreeCompare",
+                    "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.discardAllChanges",
-                    "when": "view == gitTreeCompare"
+                    "when": "view == gitTreeCompare",
+                    "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.refresh",
-                    "when": "view == gitTreeCompare"
+                    "when": "view == gitTreeCompare",
+                    "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.refresh",
@@ -177,11 +193,23 @@
                 },
                 {
                     "command": "gitTreeCompare.switchToFullDiff",
-                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == merge"
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == merge",
+                    "group": "3_options"
                 },
                 {
                     "command": "gitTreeCompare.switchToMergeDiff",
-                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == full"
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == full",
+                    "group": "3_options"
+                },
+                {
+                    "command": "gitTreeCompare.showCheckboxes",
+                    "when": "view == gitTreeCompare && !config.gitTreeCompare.showCheckboxes",
+                    "group": "3_options"
+                },
+                {
+                    "command": "gitTreeCompare.hideCheckboxes",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes",
+                    "group": "3_options"
                 },
                 {
                     "command": "gitTreeCompare.viewAsList",
@@ -364,6 +392,11 @@
                     "type": "boolean",
                     "description": "Whether to compact (flatten) single-child folders into a single tree element. Useful for Java package structures, for example. May have a performance impact for large diff trees.",
                     "default": true
+                },
+                "gitTreeCompare.showCheckboxes": {
+                    "type": "boolean",
+                    "description": "Whether to show checkboxes such that files or folders can be ticked off, for example when reviewing.",
+                    "default": false
                 }
             }
         }
@@ -378,9 +411,9 @@
         "@types/byline": "4.2.31",
         "@types/file-type": "^5.2.1",
         "@types/node": "^13.5.0",
-        "@types/vscode": "^1.60.0",
+        "@types/vscode": "^1.81.0",
         "@types/which": "^1.0.28",
-        "@vscode/vsce": "^2.19.0",
+        "@vscode/vsce": "^2.20.1",
         "ts-loader": "^9.2.6",
         "typescript": "^4.4.3",
         "webpack": "^5.44.0",
