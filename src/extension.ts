@@ -32,18 +32,18 @@ export function activate(context: ExtensionContext) {
         });
     });
 
-    commands.registerCommand(NAMESPACE + '.openFile', node => {
+    commands.registerCommand(NAMESPACE + '.openFile', (_, nodes) => {
         runAfterInit(() => {
-            provider!.openFile(node);
+            provider!.openFile(nodes);
         });
     });
-    
-    commands.registerCommand(NAMESPACE + '.discardChanges', node => {
+
+    commands.registerCommand(NAMESPACE + '.discardChanges', (_, nodes) => {
         runAfterInit(() => {
-            provider!.discardChanges(node);
+            provider!.discardChanges(nodes);
         });
     });
-    
+
     commands.registerCommand(NAMESPACE + '.discardAllChanges', () => {
         runAfterInit(() => {
             provider!.discardAllChanges();
@@ -99,7 +99,10 @@ export function activate(context: ExtensionContext) {
 
         const treeView = window.createTreeView(
             NAMESPACE,
-            {treeDataProvider: provider}
+            {
+                treeDataProvider: provider,
+                canSelectMany: true,
+            }
         );
 
         provider.init(treeView);
