@@ -26,6 +26,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Log output of all git commands run
 
+- Search within changed files (Git Tree Comparse: Search Changes)
+
 ## Location
 
 By default, the tree view is located in its own container accessible from the activity bar on the left. However, it can be freely moved to any other location like Source Control or Explorer by dragging and dropping.

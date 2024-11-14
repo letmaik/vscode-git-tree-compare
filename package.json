@@ -147,6 +147,12 @@
                 "title": "View as Tree",
                 "icon": "$(list-tree)",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.searchChanges",
+                "title": "Search Changes",
+                "icon": "$(search)",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -220,6 +226,11 @@
                     "command": "gitTreeCompare.viewAsTree",
                     "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
                     "group": "navigation@1"
+                },
+                {
+                    "command": "gitTreeCompare.searchChanges",
+                    "when": "view == gitTreeCompare",
+                    "group": "2_files"
                 }
             ],
             "view/item/context": [
