@@ -1,3 +1,8 @@
+## 1.17.0
+
+* Added "Search within changes files" feature [#103](https://github.com/letmaik/vscode-git-tree-compare/pull/103)
+* Allow for multiple files to be discarded or opened at once [#104](https://github.com/letmaik/vscode-git-tree-compare/pull/104)
+
 ## 1.16.0
 
 * Added option to show checkboxes to tick off reviewed files
