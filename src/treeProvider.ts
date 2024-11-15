@@ -1103,6 +1103,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this._onDidChangeTreeData.fire();
     }
 
+    async searchChanges() {
+        const uris = [...this.iterFiles()].map(file => Uri.file(file.dstAbsPath));
+        const relativePaths = uris.map(uri => path.relative(this.repoRoot, uri.fsPath));
+        await commands.executeCommand('workbench.action.findInFiles', {
+            query: '',
+            filesToInclude: relativePaths.join(','),
+            triggerSearch: true
+        });
+    }
+
     dispose(): void {
         this.disposables.forEach(d => d.dispose());
     }

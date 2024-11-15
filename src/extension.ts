@@ -89,6 +89,9 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.viewAsTree', () => {
         runAfterInit(() => provider!.viewAsTree(true));
     });
+    commands.registerCommand(NAMESPACE + '.searchChanges', () => {
+        runAfterInit(() => provider!.searchChanges());
+    });
 
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
