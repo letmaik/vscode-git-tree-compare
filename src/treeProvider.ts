@@ -829,12 +829,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    async openFile(fileEntry?: FileElement) {
-        const diffStatus = this.getDiffStatus(fileEntry);
-        if (!diffStatus) {
-            return;
+    async openFile(fileEntries: FileElement[]) {
+        for (const fileEntry of fileEntries) {
+            const diffStatus = this.getDiffStatus(fileEntry);
+            if (diffStatus) {
+                await this.doOpenFile(diffStatus.dstAbsPath, diffStatus.status);
+            }
         }
-        return this.doOpenFile(diffStatus.dstAbsPath, diffStatus.status);
     }
 
     async doOpenFile(dstAbsPath: string, status: StatusCode, preview=false) {
@@ -847,14 +848,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return commands.executeCommand('vscode.open', uri, options);
     }
 
-    async discardChanges(entry?: FileElement | FolderElement) {
+    async discardChanges(entries: (FileElement | FolderElement)[]) {
         let statuses: IDiffStatus[] = [];
-        if (entry instanceof FolderElement) {
-            statuses = [...this.iterFiles(entry.dstAbsPath)];
-        } else {
-            const diffStatus = this.getDiffStatus(entry);
-            if (diffStatus) {
-                statuses.push(diffStatus);
+        for (const entry of entries) {
+            if (entry instanceof FolderElement) {
+                statuses = statuses.concat([...this.iterFiles(entry.dstAbsPath)]);
+            } else {
+                const diffStatus = this.getDiffStatus(entry);
+                if (diffStatus) {
+                    statuses.push(diffStatus);
+                }
             }
         }
         await this.doDiscardChanges(statuses);
