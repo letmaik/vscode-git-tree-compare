@@ -26,7 +26,7 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Log output of all git commands run
 
-- Search within changed files (Git Tree Comparse: Search Changes)
+- Search within changed files
 
 ## Location
 
