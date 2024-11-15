@@ -147,12 +147,6 @@
                 "title": "View as Tree",
                 "icon": "$(list-tree)",
                 "category": "Git Tree Compare"
-            },
-            {
-                "command": "gitTreeCompare.discardSelectedChanges",
-                "title": "Discard Selected Changes",
-                "icon": "$(discard)",
-                "category": "Git Tree Compare"
             }
         ],
         "menus": {

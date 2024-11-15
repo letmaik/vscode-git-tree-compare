@@ -32,15 +32,15 @@ export function activate(context: ExtensionContext) {
         });
     });
 
-    commands.registerCommand(NAMESPACE + '.openFile', (_, nodes) => {
+    commands.registerCommand(NAMESPACE + '.openFile', (node, nodes) => {
         runAfterInit(() => {
-            provider!.openFile(nodes);
+            provider!.openFile(nodes || [node]);
         });
     });
 
-    commands.registerCommand(NAMESPACE + '.discardChanges', (_, nodes) => {
+    commands.registerCommand(NAMESPACE + '.discardChanges', (node, nodes) => {
         runAfterInit(() => {
-            provider!.discardChanges(nodes);
+            provider!.discardChanges(nodes || [node]);
         });
     });
 
