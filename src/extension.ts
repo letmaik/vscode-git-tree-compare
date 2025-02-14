@@ -93,6 +93,12 @@ export function activate(context: ExtensionContext) {
         runAfterInit(() => provider!.searchChanges());
     });
 
+    commands.registerCommand(NAMESPACE + '.collapseAll', () => {
+        runAfterInit(() => {
+            provider!.collapseAll();
+        });
+    });
+
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);

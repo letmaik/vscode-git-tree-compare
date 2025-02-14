@@ -153,6 +153,12 @@
                 "title": "Search Changes",
                 "icon": "$(search)",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.collapseAll",
+                "title": "Collapse All",
+                "icon": "$(collapse-all)",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -231,6 +237,11 @@
                     "command": "gitTreeCompare.searchChanges",
                     "when": "view == gitTreeCompare",
                     "group": "2_files"
+                },
+                {
+                    "command": "gitTreeCompare.collapseAll",
+                    "when": "view == gitTreeCompare",
+                    "group": "navigation@4"
                 }
             ],
             "view/item/context": [

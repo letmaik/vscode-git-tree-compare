@@ -141,6 +141,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
                 private readonly asAbsolutePath: (relPath: string) => string) {
         this.readConfig();
+        this.collapseAll = this.collapseAll.bind(this);
     }
 
     async init(treeView: TreeView<Element>) {
@@ -1111,6 +1112,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             filesToInclude: relativePaths.join(','),
             triggerSearch: true
         });
+    }
+
+    async collapseAll() {
+        const root = this.treeRoot;
+        const elements = this.getFileSystemEntries(root, false);
+        for (const element of elements) {
+            if (element instanceof FolderElement) {
+                this.treeView.reveal(element, { expand: false });
+            }
+        }
     }
 
     dispose(): void {

@@ -28,6 +28,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Search within changed files
 
+- Collapse All
+
 ## Location
 
 By default, the tree view is located in its own container accessible from the activity bar on the left. However, it can be freely moved to any other location like Source Control or Explorer by dragging and dropping.
