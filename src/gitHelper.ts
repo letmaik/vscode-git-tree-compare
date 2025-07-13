@@ -223,6 +223,9 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     const renamesFlag = findRenames ? '--find-renames' : '--no-renames';
     let diffIndexResult = await repo.exec(['diff-index', '-z', renamesFlag, ref, '--']);
     let untrackedResult = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
+    
+    // Get staged files (added but not committed) using git status
+    let stagedResult = await repo.exec(['status', '-z', '--porcelain']);
 
     const repoRoot = normalizePath(repo.root);
     const diffIndexStatuses = parseDiffIndexOutput(repoRoot, diffIndexResult.stdout);
@@ -231,14 +234,51 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
         .slice(0, -1)
         .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
     
+    // Parse staged files from git status output
+    const stagedStatuses: IDiffStatus[] = [];
+    const stagedLines = stagedResult.stdout.split('\n').filter(line => line.trim() !== '');
+    
+    for (const line of stagedLines) {
+        if (line.length < 3) continue;
+        
+        const status = line.substring(0, 2);
+        const filePath = line.substring(3);
+        
+        // Status codes:
+        // A  = staged new file
+        // M  = staged modified file
+        // D  = staged deleted file
+        // R  = staged renamed file
+        // C  = staged copied file
+        // U  = untracked file
+        // ?? = untracked file (alternative format)
+        
+        if (status === 'A ' || status === 'M ' || status === 'D ' || status === 'R ' || status === 'C ') {
+            // This is a staged file that should be included in the diff
+            const diffStatus = status.charAt(0) as StatusCode;
+            stagedStatuses.push(new DiffStatus(repoRoot, diffStatus, filePath, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
+        } else if (status === ' U' || status === '??') {
+            // This is an untracked file that might not be caught by ls-files
+            // Check if it's already in untrackedStatuses
+            const absPath = path.join(repoRoot, filePath);
+            const alreadyIncluded = untrackedStatuses.some(status => status.dstAbsPath === absPath);
+            if (!alreadyIncluded) {
+                stagedStatuses.push(new DiffStatus(repoRoot, 'U' as 'U', filePath, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
+            }
+        }
+    }
+    
     const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.dstAbsPath))
+    const stagedAbsPaths = new Set(stagedStatuses.map(status => status.dstAbsPath))
 
     // If a file was removed (D in diff-index) but was then re-introduced and not committed yet,
     // then that file also appears as untracked (in ls-files). We need to decide which status to keep.
     // Since the untracked status is newer it gets precedence.
-    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
+    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => 
+        !untrackedAbsPaths.has(status.srcAbsPath) && !stagedAbsPaths.has(status.srcAbsPath)
+    );
         
-    const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
+    const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses).concat(stagedStatuses);
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
     return statuses;
 }
