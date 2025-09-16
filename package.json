@@ -361,6 +361,13 @@
                     "description": "Whether to detect renames. Does not affect untracked files. May have a performance impact.",
                     "default": true
                 },
+                "gitTreeCompare.renameThreshold": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "The similarity index (in percent) for rename detection. A value of 100 means that only identical files are detected as renames, a value of 0 means that any file with any similarity is detected as a rename. Has no effect if gitTreeCompare.findRenames is false.",
+                    "default": 50
+                },
                 "gitTreeCompare.openChanges": {
                     "type": "boolean",
                     "description": "When selecting a modified file in the tree, whether to show its changes or just open the workspace file.",

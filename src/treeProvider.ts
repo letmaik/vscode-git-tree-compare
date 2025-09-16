@@ -100,6 +100,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private iconsMinimal: boolean;
     private fullDiff: boolean;
     private findRenames: boolean;
+    private renameThreshold: number;
     private showCollapsed: boolean;
     private compactFolders: boolean;
     private showCheckboxes: boolean;
@@ -342,6 +343,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.fullDiff = config.get<string>('diffMode') === 'full';
         this.findRenames = config.get<boolean>('findRenames', true);
+        this.renameThreshold = config.get<number>('renameThreshold', 50);
         this.showCollapsed = config.get<boolean>('collapsed', false);
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
@@ -507,7 +509,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames);
+        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
@@ -662,6 +664,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldIconsMinimal = this.iconsMinimal;
         const oldFullDiff = this.fullDiff;
         const oldFindRenames = this.findRenames;
+        const oldRenameThreshold = this.renameThreshold;
         const oldCompactFolders = this.compactFolders;
         const oldshowCheckboxes = this.showCheckboxes;
         this.readConfig();
@@ -673,6 +676,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
             oldFindRenames != this.findRenames ||
+            oldRenameThreshold != this.renameThreshold ||
             oldCompactFolders != this.compactFolders ||
             oldshowCheckboxes != this.showCheckboxes) {
 
@@ -687,6 +691,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             
             if (oldFullDiff != this.fullDiff || 
                 oldFindRenames != this.findRenames ||
+                oldRenameThreshold != this.renameThreshold ||
                 oldTreeRoot != this.treeRoot ||
                 (!oldAutoRefresh && this.autoRefresh) ||
                 (!oldRefreshIndex && this.refreshIndex)) {

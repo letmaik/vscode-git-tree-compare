@@ -207,7 +207,7 @@ function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
     return entries;
 }
 
-export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean): Promise<IDiffStatus[]> {
+export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number): Promise<IDiffStatus[]> {
     if (refreshIndex) {
         // avoid superfluous diff entries if files only got touched
         // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
@@ -219,8 +219,7 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     }
 
     // exceptions can happen with newly initialized repos without commits, or when git is busy
-    
-    const renamesFlag = findRenames ? '--find-renames' : '--no-renames';
+    const renamesFlag = findRenames ? `--find-renames=${renameThreshold}%`  : '--no-renames';
     let diffIndexResult = await repo.exec(['diff-index', '-z', renamesFlag, ref, '--']);
     let untrackedResult = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
 
