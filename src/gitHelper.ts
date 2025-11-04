@@ -89,32 +89,19 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
     }
 }
 
-export async function getBranchCommit(absGitCommonDir: string, branchName: string): Promise<string> {
+export async function getBranchCommit(branchName: string, repo: Repository): Promise<string> {
     // a cheaper alternative to repo.getBranch()
-    const refPathUnpacked = path.join(absGitCommonDir, 'refs', 'heads', branchName);
+    // Uses git rev-parse which works with all ref storage formats (traditional, packed-refs, reftable)
     try {
-        const commit = (await fs.readFile(refPathUnpacked, 'utf8')).trim();
-        return commit;
-    } catch (e) {
-        const refs = await readPackedRefs(absGitCommonDir);
-        const ref = `refs/heads/${branchName}`;
-        const commit = refs.get(ref);
-        if (commit === undefined) {
-            throw new Error(`Could not determine commit for "${branchName}"`);
+        const result = await repo.exec(['rev-parse', `refs/heads/${branchName}`]);
+        const commit = result.stdout.trim();
+        if (commit) {
+            return commit;
         }
-        return commit;
+    } catch (e) {
+        // Branch doesn't exist or other error
     }
-}
-
-async function readPackedRefs(absGitCommonDir: string): Promise<Map<string,string>> {
-    // see https://git-scm.com/docs/git-pack-refs
-    const packedRefsPath = path.join(absGitCommonDir, 'packed-refs');
-    const content = await fs.readFile(packedRefsPath, 'utf8');
-    const regex = /^([0-9a-f]+) (.+)$/;
-    return new Map((content.split('\n')
-        .map(line => regex.exec(line))
-        .filter(g => !!g) as RegExpExecArray[])
-        .map((groups: RegExpExecArray) => [groups[2], groups[1]] as [string, string]));
+    throw new Error(`Could not determine commit for "${branchName}"`);
 }
 
 export async function getHeadModificationDate(absGitDir: string): Promise<Date> {
@@ -229,14 +216,14 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     const untrackedStatuses: IDiffStatus[] = untrackedResult.stdout.split('\0')
         .slice(0, -1)
         .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
-    
+
     const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.dstAbsPath))
 
     // If a file was removed (D in diff-index) but was then re-introduced and not committed yet,
     // then that file also appears as untracked (in ls-files). We need to decide which status to keep.
     // Since the untracked status is newer it gets precedence.
     const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
-        
+
     const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
     return statuses;

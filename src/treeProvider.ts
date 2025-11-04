@@ -11,7 +11,7 @@ import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, StatusCode, getAbsGitDir, getAbsGitCommonDir,
+         diffIndex, IDiffStatus, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -24,7 +24,7 @@ class FileElement implements IDiffStatus {
         public dstRelPath: string,
         public status: StatusCode,
         public isSubmodule: boolean) {}
-    
+
     get label(): string {
         return path.basename(this.dstAbsPath)
     }
@@ -109,11 +109,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private repository: Repository | undefined;
     private baseRef: string;
     private viewAsList = false;
-   
+
     // Static state of repository
     private workspaceFolder: string;
     private absGitDir: string;
-    private absGitCommonDir: string;
     private repoRoot: FolderAbsPath;
 
     // Dynamic state of repository
@@ -127,7 +126,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // Diff results
     private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
-    
+
     // UI parameters, derived
     private treeRoot: FolderAbsPath;
 
@@ -193,7 +192,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const dotGit = await this.git.getRepositoryDotGit(repositoryRoot);
         const repository = this.git.open(repositoryRoot, dotGit);
         const absGitDir = await getAbsGitDir(repository);
-        const absGitCommonDir = await getAbsGitCommonDir(repository);
         const repoRoot = normalizePath(repository.root);
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
@@ -202,7 +200,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         this.repository = repository;
-        this.absGitCommonDir = absGitCommonDir;
         this.absGitDir = absGitDir;
         this.repoRoot = repoRoot;
 
@@ -431,7 +428,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const HEAD = await this.repository!.getHEAD();
             // if detached HEAD, then .commit exists, otherwise only .name
             const headName = HEAD.name;
-            const headCommit = HEAD.commit || await getBranchCommit(this.absGitCommonDir, HEAD.name!);
+            const headCommit = HEAD.commit || await getBranchCommit(HEAD.name!, this.repository!);
             if (baseRef) {
                 const exists = await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef);
                 if (!exists) {
@@ -440,7 +437,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 }
             }
             if (!baseRef) {
-                baseRef = await this.getStoredBaseRef();           
+                baseRef = await this.getStoredBaseRef();
             }
             if (!baseRef) {
                 baseRef = await getDefaultBranch(this.repository!, HEAD);
@@ -602,7 +599,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // If HEAD is not detached, check if the symbolic ref resolves to a different commit.
         if (this.headName) {
             // this.repository.getBranch() is not used here to avoid git invocation overhead
-            const headCommit = await getBranchCommit(this.absGitCommonDir, this.headName);
+            const headCommit = await getBranchCommit(this.headName, this.repository!);
             if (this.headCommit !== headCommit) {
                 return true;
             }
@@ -688,8 +685,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (oldTreeRootIsRepo != this.treeRootIsRepo) {
                 this.updateTreeRootFolder();
             }
-            
-            if (oldFullDiff != this.fullDiff || 
+
+            if (oldFullDiff != this.fullDiff ||
                 oldFindRenames != this.findRenames ||
                 oldRenameThreshold != this.renameThreshold ||
                 oldTreeRoot != this.treeRoot ||
@@ -1039,7 +1036,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         } else {
             throw new Error("unsupported item type");
         }
-        
+
         if (this.baseRef === baseRef) {
             return;
         }
