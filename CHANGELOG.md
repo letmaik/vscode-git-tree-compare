@@ -1,3 +1,8 @@
+## 1.18.0
+
+* Add configurable rename detection threshold [#115](https://github.com/letmaik/vscode-git-tree-compare/pull/115)
+* Get branch name using rev-parse instead of filesystem based approach [#118](https://github.com/letmaik/vscode-git-tree-compare/pull/118)
+
 ## 1.17.0
 
 * Added "Search within changes files" feature [#103](https://github.com/letmaik/vscode-git-tree-compare/pull/103)
