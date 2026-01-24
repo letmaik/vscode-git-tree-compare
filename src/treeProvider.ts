@@ -527,6 +527,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
+        const newFilePaths = new Set<string>();
         for (const entry of diff) {
             const folder = path.dirname(entry.dstAbsPath);
 
@@ -549,10 +550,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             const entries = files.get(folder)!;
             entries.push(entry);
-        }
 
-        // Reset checkbox state for files whose status has changed
-        for (const entry of diff) {
+            // Track new file paths and reset checkbox if status changed
+            newFilePaths.add(entry.dstAbsPath);
             const oldStatus = oldFileStatuses.get(entry.dstAbsPath);
             if (oldStatus !== undefined && oldStatus !== entry.status) {
                 // File status changed, reset checkbox state
@@ -560,8 +560,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
         }
 
-        // Also clear checkbox state for files that no longer exist in the diff
-        const newFilePaths = new Set(diff.map(f => f.dstAbsPath));
+        // Clear checkbox state for files that no longer exist in the diff
         for (const [filePath] of this.checkboxStates) {
             if (!newFilePaths.has(filePath)) {
                 this.checkboxStates.delete(filePath);
