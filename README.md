@@ -55,3 +55,7 @@ By default, the tree view is located in its own container accessible from the ac
 `gitTreeCompare.collapsed` When enabled, shows folders collapsed instead of expanded. NOTE: Changing this option requires restarting VS Code.
 
 `gitTreeCompare.compactFolders` When enabled, compacts (flattens) single-child folders into a single tree element. Useful for Java package structures, for example. May have a performance impact for large diff trees.
+
+`gitTreeCompare.showCheckboxes` When enabled, shows checkboxes next to files and folders, allowing you to tick off items, for example when reviewing changes.
+
+`gitTreeCompare.resetCheckboxOnFileChange` When enabled, automatically resets a file's checkbox when the file is modified after being checked. This ensures that checked files reflect their reviewed state, and any subsequent modifications require re-review. Only effective when `showCheckboxes` is enabled.

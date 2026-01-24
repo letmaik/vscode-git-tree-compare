@@ -391,12 +391,45 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     getTreeItem(element: Element): TreeItem {
         let checkboxState: TreeItemCheckboxState | undefined;
         if (this.showCheckboxes) {
-            if (element instanceof FileElement || element instanceof FolderElement) {
+            if (element instanceof FileElement) {
                 const stateInfo = this.checkboxStates.get(element.dstAbsPath);
                 checkboxState = stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
+            } else if (element instanceof FolderElement) {
+                // Compute folder state from children: checked if all children are checked
+                checkboxState = this.computeFolderCheckboxState(element);
             }
         }
         return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
+    }
+
+    private computeFolderCheckboxState(folder: FolderElement): TreeItemCheckboxState {
+        // Check if user explicitly set state on this folder
+        const explicitState = this.checkboxStates.get(folder.dstAbsPath);
+        if (explicitState) {
+            return explicitState.state;
+        }
+        
+        // Otherwise derive from files: folder is checked only if ALL files under it are checked
+        const files = folder.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
+        let hasFiles = false;
+        let allChecked = true;
+        
+        for (const [folderPath, fileEntries] of files.entries()) {
+            // Check if this folder is under the target folder
+            if (folderPath === folder.dstAbsPath || folderPath.startsWith(folder.dstAbsPath + path.sep)) {
+                for (const file of fileEntries) {
+                    hasFiles = true;
+                    const stateInfo = this.checkboxStates.get(file.dstAbsPath);
+                    if (!stateInfo || stateInfo.state !== TreeItemCheckboxState.Checked) {
+                        allChecked = false;
+                        break;
+                    }
+                }
+                if (!allChecked) break;
+            }
+        }
+        
+        return (hasFiles && allChecked) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -555,7 +588,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (this.resetCheckboxOnFileChange) {
                 const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
                 if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
-                    // Collect files to check asynchronously
                     filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
                 }
             }
@@ -581,9 +613,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             });
             
             const pathsToReset = await Promise.all(statPromises);
-            pathsToReset
-                .filter((filePath): filePath is string => filePath !== null)
-                .forEach(filePath => this.checkboxStates.delete(filePath));
+            const actualPathsToReset = pathsToReset.filter((filePath): filePath is string => filePath !== null);
+            actualPathsToReset.forEach(filePath => this.checkboxStates.delete(filePath));
+            
+            // Fire tree refresh to update checkbox UI
+            if (actualPathsToReset.length > 0) {
+                this._onDidChangeTreeData.fire();
+            }
         }
 
         // Clear checkbox state for files that no longer exist in the diff
