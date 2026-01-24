@@ -514,25 +514,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.updateRefs();
         }
 
-        // Build a map of old file statuses to detect changes (for backwards compatibility when feature is disabled)
-        const oldFileStatuses = new Map<string, StatusCode>();
-        if (!this.resetCheckboxOnFileChange) {
-            if (this.filesInsideTreeRoot) {
-                for (const files of this.filesInsideTreeRoot.values()) {
-                    for (const file of files) {
-                        oldFileStatuses.set(file.dstAbsPath, file.status);
-                    }
-                }
-            }
-            if (this.filesOutsideTreeRoot) {
-                for (const files of this.filesOutsideTreeRoot.values()) {
-                    for (const file of files) {
-                        oldFileStatuses.set(file.dstAbsPath, file.status);
-                    }
-                }
-            }
-        }
-
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
@@ -570,20 +551,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // Track new file paths
             newFilePaths.add(entry.dstAbsPath);
             
-            // Reset checkbox based on selected mode
+            // Collect files that need mtime checking when feature is enabled
             if (this.resetCheckboxOnFileChange) {
-                // New behavior: Reset checkbox if file was modified after checkbox was checked
                 const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
                 if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
                     // Collect files to check asynchronously
                     filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
-                }
-            } else {
-                // Old behavior: Reset checkbox if git status changed
-                const oldStatus = oldFileStatuses.get(entry.dstAbsPath);
-                if (oldStatus !== undefined && oldStatus !== entry.status) {
-                    // File status changed, reset checkbox state
-                    this.checkboxStates.delete(entry.dstAbsPath);
                 }
             }
         }
