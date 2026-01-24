@@ -1229,6 +1229,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         // Calculate relative path from workspace folder root (not git repo root)
+        // Note: If the file is outside the workspace folder, the path will start with ../
         const relativePath = path.relative(this.workspaceFolder, diffStatus.dstAbsPath);
         await commands.executeCommand('vscode.env.clipboard.writeText', relativePath);
     }
