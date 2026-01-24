@@ -542,7 +542,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const newFilePaths = new Set<string>();
         // Collect files that need mtime checking for async batch processing
-        const filesToCheckMtime: Array<{path: string, stateInfo: CheckboxStateInfo}> = [];
+        const filesToCheckMtime: Array<{filePath: string, stateInfo: CheckboxStateInfo}> = [];
         
         for (const entry of diff) {
             const folder = path.dirname(entry.dstAbsPath);
@@ -576,7 +576,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
                 if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
                     // Collect files to check asynchronously
-                    filesToCheckMtime.push({path: entry.dstAbsPath, stateInfo});
+                    filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
                 }
             } else {
                 // Old behavior: Reset checkbox if git status changed
@@ -590,27 +590,27 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         // Check file modification times asynchronously in parallel
         if (this.resetCheckboxOnFileChange && filesToCheckMtime.length > 0) {
-            const statPromises = filesToCheckMtime.map(async ({path, stateInfo}) => {
+            const statPromises = filesToCheckMtime.map(async ({filePath, stateInfo}) => {
                 try {
-                    const stats = await fs.promises.stat(path);
+                    const stats = await fs.promises.stat(filePath);
                     const fileMtime = stats.mtimeMs;
                     
                     // If file was modified after checkbox was checked, reset it
                     if (fileMtime > stateInfo.timestamp) {
-                        return path;
+                        return filePath;
                     }
                 } catch (error: unknown) {
                     // File might be deleted or inaccessible - this is expected in some cases
                     const errorMessage = error instanceof Error ? error.message : String(error);
-                    this.log(`Could not stat file for checkbox reset check: ${path}: ${errorMessage}`);
+                    this.log(`Could not stat file for checkbox reset check: ${filePath}: ${errorMessage}`);
                 }
                 return null;
             });
             
             const pathsToReset = await Promise.all(statPromises);
             pathsToReset
-                .filter((path): path is string => path !== null)
-                .forEach(path => this.checkboxStates.delete(path));
+                .filter((filePath): filePath is string => filePath !== null)
+                .forEach(filePath => this.checkboxStates.delete(filePath));
         }
 
         // Clear checkbox state for files that no longer exist in the diff
