@@ -206,11 +206,11 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     }
 
     // exceptions can happen with newly initialized repos without commits, or when git is busy
+    const repoRoot = normalizePath(repo.root);
     const renamesFlag = findRenames ? `--find-renames=${renameThreshold}%`  : '--no-renames';
-    const cachedFlag = omitUnstagedChanges ? '--cached' : '';
     const diffIndexArgs = ['diff-index', '-z', renamesFlag];
-    if (cachedFlag) {
-        diffIndexArgs.push(cachedFlag);
+    if (omitUnstagedChanges) {
+        diffIndexArgs.push('--cached');
     }
     diffIndexArgs.push(ref, '--');
     let diffIndexResult = await repo.exec(diffIndexArgs);
@@ -223,7 +223,6 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
             .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
     }
 
-    const repoRoot = normalizePath(repo.root);
     const diffIndexStatuses = parseDiffIndexOutput(repoRoot, diffIndexResult.stdout);
 
     const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.dstAbsPath))
