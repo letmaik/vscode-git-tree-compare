@@ -420,6 +420,15 @@
                     "type": "boolean",
                     "description": "When enabled, automatically resets checkboxes when a file is modified after being checked. This ensures that checked files reflect their reviewed state, and any subsequent modifications require re-review.",
                     "default": false
+                },
+                "gitTreeCompare.refSortOrder": {
+                    "type": "string",
+                    "enum": [
+                        "alphabetically",
+                        "committerdate"
+                    ],
+                    "description": "How to sort refs (branches, tags) when changing the comparison base. 'committerdate' sorts by most recently committed first.",
+                    "default": "committerdate"
                 }
             }
         }
