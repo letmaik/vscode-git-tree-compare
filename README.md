@@ -55,3 +55,5 @@ By default, the tree view is located in its own container accessible from the ac
 `gitTreeCompare.collapsed` When enabled, shows folders collapsed instead of expanded. NOTE: Changing this option requires restarting VS Code.
 
 `gitTreeCompare.compactFolders` When enabled, compacts (flattens) single-child folders into a single tree element. Useful for Java package structures, for example. May have a performance impact for large diff trees.
+
+`gitTreeCompare.refSortOrder` Determines how refs (branches, tags) are sorted when changing the comparison base. Default is `committerdate` which sorts by most recently committed first, making it easy to find recently-used branches. Can be set to `alphabetically` for alphabetical sorting.
