@@ -415,6 +415,15 @@
                     "type": "boolean",
                     "description": "Whether to show checkboxes such that files or folders can be ticked off, for example when reviewing.",
                     "default": false
+                },
+                "gitTreeCompare.refSortOrder": {
+                    "type": "string",
+                    "enum": [
+                        "alphabetically",
+                        "committerdate"
+                    ],
+                    "description": "How to sort refs (branches, tags) when changing the comparison base. 'committerdate' sorts by most recently committed first.",
+                    "default": "alphabetically"
                 }
             }
         }
