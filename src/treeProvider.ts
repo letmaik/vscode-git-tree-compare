@@ -599,18 +599,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     if (fileMtime > stateInfo.timestamp) {
                         return path;
                     }
-                } catch (error) {
-                    // If we can't read the file, just ignore (might be deleted)
+                } catch (error: any) {
+                    // File might be deleted or inaccessible - this is expected in some cases
+                    this.log(`Could not stat file for checkbox reset check: ${path}: ${error.message}`);
                 }
                 return null;
             });
             
             const pathsToReset = await Promise.all(statPromises);
-            for (const path of pathsToReset) {
-                if (path !== null) {
-                    this.checkboxStates.delete(path);
-                }
-            }
+            pathsToReset
+                .filter((path): path is string => path !== null)
+                .forEach(path => this.checkboxStates.delete(path));
         }
 
         // Clear checkbox state for files that no longer exist in the diff
