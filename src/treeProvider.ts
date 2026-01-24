@@ -503,6 +503,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.updateRefs();
         }
 
+        // Build a map of old file statuses to detect changes
+        const oldFileStatuses = new Map<string, StatusCode>();
+        if (this.filesInsideTreeRoot) {
+            for (const files of this.filesInsideTreeRoot.values()) {
+                for (const file of files) {
+                    oldFileStatuses.set(file.dstAbsPath, file.status);
+                }
+            }
+        }
+        if (this.filesOutsideTreeRoot) {
+            for (const files of this.filesOutsideTreeRoot.values()) {
+                for (const file of files) {
+                    oldFileStatuses.set(file.dstAbsPath, file.status);
+                }
+            }
+        }
+
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
@@ -532,6 +549,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             const entries = files.get(folder)!;
             entries.push(entry);
+        }
+
+        // Reset checkbox state for files whose status has changed
+        for (const entry of diff) {
+            const oldStatus = oldFileStatuses.get(entry.dstAbsPath);
+            if (oldStatus !== undefined && oldStatus !== entry.status) {
+                // File status changed, reset checkbox state
+                this.checkboxStates.delete(entry.dstAbsPath);
+            }
+        }
+
+        // Also clear checkbox state for files that no longer exist in the diff
+        const newFilePaths = new Set(diff.map(f => f.dstAbsPath));
+        for (const [filePath] of this.checkboxStates) {
+            if (!newFilePaths.has(filePath)) {
+                this.checkboxStates.delete(filePath);
+            }
         }
 
         let treeHasChanged = false;
