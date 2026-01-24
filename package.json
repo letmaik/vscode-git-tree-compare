@@ -271,19 +271,23 @@
                 },
                 {
                     "command": "gitTreeCompare.openChanges",
-                    "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges"
+                    "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges",
+                    "group": "1_open"
                 },
                 {
                     "command": "gitTreeCompare.openFile",
-                    "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges"
+                    "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChanges",
+                    "group": "1_open"
                 },
                 {
                     "command": "gitTreeCompare.discardChanges",
-                    "when": "view == gitTreeCompare && viewItem == file"
+                    "when": "view == gitTreeCompare && viewItem == file",
+                    "group": "2_discard"
                 },
                 {
                     "command": "gitTreeCompare.discardChanges",
-                    "when": "view == gitTreeCompare && viewItem == folder"
+                    "when": "view == gitTreeCompare && viewItem == folder",
+                    "group": "2_discard"
                 },
                 {
                     "command": "gitTreeCompare.discardAllChanges",
@@ -349,12 +353,12 @@
                 {
                     "command": "gitTreeCompare.copyPath",
                     "when": "view == gitTreeCompare && viewItem == file",
-                    "group": "6_copypath"
+                    "group": "3_copy"
                 },
                 {
                     "command": "gitTreeCompare.copyRelativePath",
                     "when": "view == gitTreeCompare && viewItem == file",
-                    "group": "6_copypath"
+                    "group": "3_copy"
                 }
             ]
         },

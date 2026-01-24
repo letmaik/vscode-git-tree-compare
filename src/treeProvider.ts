@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -1220,7 +1220,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (!diffStatus) {
             return;
         }
-        await commands.executeCommand('vscode.env.clipboard.writeText', diffStatus.dstAbsPath);
+        await env.clipboard.writeText(diffStatus.dstAbsPath);
     }
 
     async copyRelativePath(fileEntry: FileElement) {
@@ -1231,7 +1231,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // Calculate relative path from workspace folder root (not git repo root)
         // Note: If the file is outside the workspace folder, the path will start with ../
         const relativePath = path.relative(this.workspaceFolder, diffStatus.dstAbsPath);
-        await commands.executeCommand('vscode.env.clipboard.writeText', relativePath);
+        await env.clipboard.writeText(relativePath);
     }
 
     dispose(): void {
