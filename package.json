@@ -423,7 +423,7 @@
                         "committerdate"
                     ],
                     "description": "How to sort refs (branches, tags) when changing the comparison base. 'committerdate' sorts by most recently committed first.",
-                    "default": "alphabetically"
+                    "default": "committerdate"
                 }
             }
         }

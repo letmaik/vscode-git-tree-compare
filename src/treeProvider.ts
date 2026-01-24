@@ -1007,7 +1007,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         const commit = new ChangeBaseCommitItem();
-        const sortOrder = workspace.getConfiguration(NAMESPACE).get<'alphabetically' | 'committerdate'>('refSortOrder', 'alphabetically');
+        const sortOrder = workspace.getConfiguration(NAMESPACE).get<'alphabetically' | 'committerdate'>('refSortOrder', 'committerdate');
         const refs = (await this.repository.getRefs({ sort: sortOrder })).filter(ref => ref.name);
         const heads = refs.filter(ref => ref.type === RefType.Head).map(ref => new ChangeBaseRefItem(ref));
         const tags = refs.filter(ref => ref.type === RefType.Tag).map(ref => new ChangeBaseTagItem(ref));
