@@ -153,6 +153,16 @@
                 "title": "Search Changes",
                 "icon": "$(search)",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.copyPath",
+                "title": "Copy Path",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.copyRelativePath",
+                "title": "Copy Relative Path",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -335,6 +345,16 @@
                 {
                     "command": "gitTreeCompare.switchToMergeDiff",
                     "when": "view == gitTreeCompare && viewItem == ref && config.gitTreeCompare.diffMode == full"
+                },
+                {
+                    "command": "gitTreeCompare.copyPath",
+                    "when": "view == gitTreeCompare && viewItem == file",
+                    "group": "6_copypath"
+                },
+                {
+                    "command": "gitTreeCompare.copyRelativePath",
+                    "when": "view == gitTreeCompare && viewItem == file",
+                    "group": "6_copypath"
                 }
             ]
         },

@@ -92,6 +92,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.searchChanges', () => {
         runAfterInit(() => provider!.searchChanges());
     });
+    commands.registerCommand(NAMESPACE + '.copyPath', node => {
+        runAfterInit(() => provider!.copyPath(node));
+    });
+    commands.registerCommand(NAMESPACE + '.copyRelativePath', node => {
+        runAfterInit(() => provider!.copyRelativePath(node));
+    });
 
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);

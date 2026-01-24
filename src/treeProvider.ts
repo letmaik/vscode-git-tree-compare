@@ -1215,6 +1215,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         });
     }
 
+    async copyPath(fileEntry: FileElement) {
+        const diffStatus = this.getDiffStatus(fileEntry);
+        if (!diffStatus) {
+            return;
+        }
+        await commands.executeCommand('vscode.env.clipboard.writeText', diffStatus.dstAbsPath);
+    }
+
+    async copyRelativePath(fileEntry: FileElement) {
+        const diffStatus = this.getDiffStatus(fileEntry);
+        if (!diffStatus) {
+            return;
+        }
+        // Calculate relative path from workspace folder root (not git repo root)
+        const relativePath = path.relative(this.workspaceFolder, diffStatus.dstAbsPath);
+        await commands.executeCommand('vscode.env.clipboard.writeText', relativePath);
+    }
+
     dispose(): void {
         this.disposables.forEach(d => d.dispose());
     }
