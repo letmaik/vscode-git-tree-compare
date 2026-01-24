@@ -561,10 +561,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         // Clear checkbox state for files that no longer exist in the diff
+        const pathsToDelete: string[] = [];
         for (const [filePath] of this.checkboxStates) {
             if (!newFilePaths.has(filePath)) {
-                this.checkboxStates.delete(filePath);
+                pathsToDelete.push(filePath);
             }
+        }
+        for (const filePath of pathsToDelete) {
+            this.checkboxStates.delete(filePath);
         }
 
         let treeHasChanged = false;
