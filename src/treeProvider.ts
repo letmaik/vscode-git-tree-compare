@@ -551,7 +551,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // Track new file paths
             newFilePaths.add(entry.dstAbsPath);
             
-            // Collect files that need mtime checking when feature is enabled
+            // Collect checked files for mtime checking to reset if modified after being checked
             if (this.resetCheckboxOnFileChange) {
                 const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
                 if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
