@@ -599,9 +599,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     if (fileMtime > stateInfo.timestamp) {
                         return path;
                     }
-                } catch (error: any) {
+                } catch (error: unknown) {
                     // File might be deleted or inaccessible - this is expected in some cases
-                    this.log(`Could not stat file for checkbox reset check: ${path}: ${error.message}`);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    this.log(`Could not stat file for checkbox reset check: ${path}: ${errorMessage}`);
                 }
                 return null;
             });
