@@ -110,6 +110,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private compactFolders: boolean;
     private showCheckboxes: boolean;
     private resetCheckboxOnFileChange: boolean;
+    private omitUntracked: boolean;
+    private omitUnstagedChanges: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -354,6 +356,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
+        this.omitUntracked = config.get<boolean>('omitUntracked', false);
+        this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -550,7 +554,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold);
+        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntracked, this.omitUnstagedChanges);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
