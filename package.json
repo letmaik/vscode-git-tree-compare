@@ -415,6 +415,11 @@
                     "type": "boolean",
                     "description": "Whether to show checkboxes such that files or folders can be ticked off, for example when reviewing.",
                     "default": false
+                },
+                "gitTreeCompare.resetCheckboxOnFileChange": {
+                    "type": "boolean",
+                    "description": "When enabled, automatically resets checkboxes when a file is modified after being checked. This ensures that checked files reflect their reviewed state, and any subsequent modifications require re-review.",
+                    "default": false
                 }
             }
         }

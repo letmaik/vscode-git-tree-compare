@@ -17,6 +17,11 @@ import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
+interface CheckboxStateInfo {
+    state: TreeItemCheckboxState;
+    timestamp: number; // When the checkbox was checked
+}
+
 class FileElement implements IDiffStatus {
     constructor(
         public srcAbsPath: string,
@@ -104,6 +109,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private showCollapsed: boolean;
     private compactFolders: boolean;
     private showCheckboxes: boolean;
+    private resetCheckboxOnFileChange: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -133,7 +139,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // UI state
     private treeView: TreeView<Element>;
     private isPaused: boolean;
-    private checkboxStates: Map<string, TreeItemCheckboxState> = new Map<string, TreeItemCheckboxState>();
+    private checkboxStates: Map<string, CheckboxStateInfo> = new Map<string, CheckboxStateInfo>();
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -307,7 +313,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private async handleChangeCheckboxState(e: TreeCheckboxChangeEvent<Element>) {
         for (let [element, state] of e.items) {
             if (element instanceof FileElement || element instanceof FolderElement) {
-                this.checkboxStates.set(element.dstAbsPath, state);
+                this.checkboxStates.set(element.dstAbsPath, {
+                    state: state,
+                    timestamp: Date.now()
+                });
             }
         }
     }
@@ -344,6 +353,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.showCollapsed = config.get<boolean>('collapsed', false);
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
+        this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -382,7 +392,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         let checkboxState: TreeItemCheckboxState | undefined;
         if (this.showCheckboxes) {
             if (element instanceof FileElement || element instanceof FolderElement) {
-                checkboxState = this.checkboxStates.get(element.dstAbsPath) ?? TreeItemCheckboxState.Unchecked;
+                const stateInfo = this.checkboxStates.get(element.dstAbsPath);
+                checkboxState = stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
             }
         }
         return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
@@ -503,19 +514,21 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.updateRefs();
         }
 
-        // Build a map of old file statuses to detect changes
+        // Build a map of old file statuses to detect changes (for backwards compatibility when feature is disabled)
         const oldFileStatuses = new Map<string, StatusCode>();
-        if (this.filesInsideTreeRoot) {
-            for (const files of this.filesInsideTreeRoot.values()) {
-                for (const file of files) {
-                    oldFileStatuses.set(file.dstAbsPath, file.status);
+        if (!this.resetCheckboxOnFileChange) {
+            if (this.filesInsideTreeRoot) {
+                for (const files of this.filesInsideTreeRoot.values()) {
+                    for (const file of files) {
+                        oldFileStatuses.set(file.dstAbsPath, file.status);
+                    }
                 }
             }
-        }
-        if (this.filesOutsideTreeRoot) {
-            for (const files of this.filesOutsideTreeRoot.values()) {
-                for (const file of files) {
-                    oldFileStatuses.set(file.dstAbsPath, file.status);
+            if (this.filesOutsideTreeRoot) {
+                for (const files of this.filesOutsideTreeRoot.values()) {
+                    for (const file of files) {
+                        oldFileStatuses.set(file.dstAbsPath, file.status);
+                    }
                 }
             }
         }
@@ -551,12 +564,34 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             const entries = files.get(folder)!;
             entries.push(entry);
 
-            // Track new file paths and reset checkbox if status changed
+            // Track new file paths
             newFilePaths.add(entry.dstAbsPath);
-            const oldStatus = oldFileStatuses.get(entry.dstAbsPath);
-            if (oldStatus !== undefined && oldStatus !== entry.status) {
-                // File status changed, reset checkbox state
-                this.checkboxStates.delete(entry.dstAbsPath);
+            
+            // Reset checkbox based on selected mode
+            if (this.resetCheckboxOnFileChange) {
+                // New behavior: Reset checkbox if file was modified after checkbox was checked
+                const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
+                if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
+                    try {
+                        // Get file modification time
+                        const stats = fs.statSync(entry.dstAbsPath);
+                        const fileMtime = stats.mtimeMs;
+                        
+                        // If file was modified after checkbox was checked, reset it
+                        if (fileMtime > stateInfo.timestamp) {
+                            this.checkboxStates.delete(entry.dstAbsPath);
+                        }
+                    } catch (error) {
+                        // If we can't read the file, just ignore (might be deleted)
+                    }
+                }
+            } else {
+                // Old behavior: Reset checkbox if git status changed
+                const oldStatus = oldFileStatuses.get(entry.dstAbsPath);
+                if (oldStatus !== undefined && oldStatus !== entry.status) {
+                    // File status changed, reset checkbox state
+                    this.checkboxStates.delete(entry.dstAbsPath);
+                }
             }
         }
 
