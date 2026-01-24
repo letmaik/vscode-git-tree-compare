@@ -194,7 +194,7 @@ function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
     return entries;
 }
 
-export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntracked: boolean, omitUnstagedChanges: boolean): Promise<IDiffStatus[]> {
+export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean): Promise<IDiffStatus[]> {
     if (refreshIndex) {
         // avoid superfluous diff entries if files only got touched
         // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
@@ -216,7 +216,7 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     let diffIndexResult = await repo.exec(diffIndexArgs);
     
     let untrackedStatuses: IDiffStatus[] = [];
-    if (!omitUntracked) {
+    if (!omitUntrackedFiles) {
         let untrackedResult = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
         untrackedStatuses = untrackedResult.stdout.split('\0')
             .slice(0, -1)
