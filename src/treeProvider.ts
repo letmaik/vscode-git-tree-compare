@@ -541,6 +541,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
         const newFilePaths = new Set<string>();
+        // Collect files that need mtime checking for async batch processing
+        const filesToCheckMtime: Array<{path: string, stateInfo: CheckboxStateInfo}> = [];
+        
         for (const entry of diff) {
             const folder = path.dirname(entry.dstAbsPath);
 
@@ -572,18 +575,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 // New behavior: Reset checkbox if file was modified after checkbox was checked
                 const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
                 if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
-                    try {
-                        // Get file modification time
-                        const stats = fs.statSync(entry.dstAbsPath);
-                        const fileMtime = stats.mtimeMs;
-                        
-                        // If file was modified after checkbox was checked, reset it
-                        if (fileMtime > stateInfo.timestamp) {
-                            this.checkboxStates.delete(entry.dstAbsPath);
-                        }
-                    } catch (error) {
-                        // If we can't read the file, just ignore (might be deleted)
-                    }
+                    // Collect files to check asynchronously
+                    filesToCheckMtime.push({path: entry.dstAbsPath, stateInfo});
                 }
             } else {
                 // Old behavior: Reset checkbox if git status changed
@@ -591,6 +584,31 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 if (oldStatus !== undefined && oldStatus !== entry.status) {
                     // File status changed, reset checkbox state
                     this.checkboxStates.delete(entry.dstAbsPath);
+                }
+            }
+        }
+
+        // Check file modification times asynchronously in parallel
+        if (this.resetCheckboxOnFileChange && filesToCheckMtime.length > 0) {
+            const statPromises = filesToCheckMtime.map(async ({path, stateInfo}) => {
+                try {
+                    const stats = await fs.promises.stat(path);
+                    const fileMtime = stats.mtimeMs;
+                    
+                    // If file was modified after checkbox was checked, reset it
+                    if (fileMtime > stateInfo.timestamp) {
+                        return path;
+                    }
+                } catch (error) {
+                    // If we can't read the file, just ignore (might be deleted)
+                }
+                return null;
+            });
+            
+            const pathsToReset = await Promise.all(statPromises);
+            for (const path of pathsToReset) {
+                if (path !== null) {
+                    this.checkboxStates.delete(path);
                 }
             }
         }
