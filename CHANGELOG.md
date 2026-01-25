@@ -1,6 +1,12 @@
 ## 1.19.0
 
 * Add GitHub PR comparison command [#130](https://github.com/letmaik/vscode-git-tree-compare/pull/130)
+* Add external git difftool support [#129](https://github.com/letmaik/vscode-git-tree-compare/pull/129)
+* Add file sorting options for list view [#128](https://github.com/letmaik/vscode-git-tree-compare/pull/128)
+* Add configuration options to filter untracked files and unstaged changes [#126](https://github.com/letmaik/vscode-git-tree-compare/pull/126)
+* Add Copy Path and Copy Relative Path context menu items [#125](https://github.com/letmaik/vscode-git-tree-compare/pull/125)
+* Sort refs by committer date by default [#124](https://github.com/letmaik/vscode-git-tree-compare/pull/124)
+* Add automatic checkbox reset based on file modification time [#123](https://github.com/letmaik/vscode-git-tree-compare/pull/123)
 
 ## 1.18.0
 
