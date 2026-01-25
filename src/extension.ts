@@ -98,6 +98,18 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.copyRelativePath', node => {
         runAfterInit(() => provider!.copyRelativePath(node));
     });
+    commands.registerCommand(NAMESPACE + '.sortByName', () => {
+        runAfterInit(() => provider!.sortByName());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByPath', () => {
+        runAfterInit(() => provider!.sortByPath());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByStatus', () => {
+        runAfterInit(() => provider!.sortByStatus());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByRecentlyModified', () => {
+        runAfterInit(() => provider!.sortByRecentlyModified());
+    });
 
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
