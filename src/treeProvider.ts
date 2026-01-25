@@ -362,6 +362,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<'name' | 'path' | 'status' | 'recentlyModified'>('sortOrder', 'path');
+        // Set context for UI state
+        commands.executeCommand('setContext', NAMESPACE + '.sortOrder', this.sortOrder);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {

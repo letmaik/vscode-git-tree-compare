@@ -392,22 +392,22 @@
                 },
                 {
                     "command": "gitTreeCompare.sortByName",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList && config.gitTreeCompare.sortOrder != name",
+                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
                     "group": "0_view_and_sort@2"
                 },
                 {
                     "command": "gitTreeCompare.sortByPath",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList && config.gitTreeCompare.sortOrder != path",
+                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
                     "group": "0_view_and_sort@2"
                 },
                 {
                     "command": "gitTreeCompare.sortByStatus",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList && config.gitTreeCompare.sortOrder != status",
+                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
                     "group": "0_view_and_sort@2"
                 },
                 {
                     "command": "gitTreeCompare.sortByRecentlyModified",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList && config.gitTreeCompare.sortOrder != recentlyModified",
+                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
                     "group": "0_view_and_sort@2"
                 }
             ]
