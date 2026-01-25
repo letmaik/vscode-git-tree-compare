@@ -17,6 +17,18 @@ import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
+type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+
+const STATUS_SORT_ORDER: { [key: string]: number } = {
+    'M': 0, // Modified
+    'A': 1, // Added
+    'D': 2, // Deleted
+    'R': 3, // Renamed
+    'C': 4, // Conflict
+    'U': 5, // Untracked
+    'T': 6  // Type change
+};
+
 interface CheckboxStateInfo {
     state: TreeItemCheckboxState;
     timestamp: number; // When the checkbox was checked
@@ -114,7 +126,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private resetCheckboxOnFileChange: boolean;
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
-    private sortOrder: 'name' | 'path' | 'status' | 'recentlyModified';
+    private sortOrder: SortOrder;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -361,7 +373,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
-        this.sortOrder = config.get<'name' | 'path' | 'status' | 'recentlyModified'>('sortOrder', 'path');
+        this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
         // Set context for UI state
         commands.executeCommand('setContext', NAMESPACE + '.sortOrder', this.sortOrder);
     }
@@ -930,19 +942,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 fileElements.sort((a, b) => a.dstRelPath.localeCompare(b.dstRelPath));
                 break;
             case 'status':
-                // Sort by status: M < A < D < R < C < U < T
-                const statusOrder: { [key: string]: number } = {
-                    'M': 0, // Modified
-                    'A': 1, // Added
-                    'D': 2, // Deleted
-                    'R': 3, // Renamed
-                    'C': 4, // Conflict
-                    'U': 5, // Untracked
-                    'T': 6  // Type change
-                };
                 fileElements.sort((a, b) => {
-                    const aOrder = statusOrder[a.status] ?? 99;
-                    const bOrder = statusOrder[b.status] ?? 99;
+                    const aOrder = STATUS_SORT_ORDER[a.status] ?? 99;
+                    const bOrder = STATUS_SORT_ORDER[b.status] ?? 99;
                     if (aOrder !== bOrder) {
                         return aOrder - bOrder;
                     }
