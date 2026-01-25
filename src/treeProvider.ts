@@ -1259,39 +1259,87 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const headRepoUrl = headRepo.clone_url;
                 const isFork = headRepo.full_name !== pr.base.repo.full_name;
 
-                // Fetch the head branch
+                // Create a local branch name for the PR
+                const localBranchName = `pr/${prNumber}`;
+
+                // Fetch and create/update local branch for the PR
                 try {
                     if (isFork) {
-                        // For forks, we need to add a remote and fetch
-                        this.log(`Fetching from fork: ${headRepoUrl}`);
-                        await repository.exec(['remote', 'add', `pr-${prNumber}`, headRepoUrl]);
-                        await repository.fetch({ remote: `pr-${prNumber}`, ref: headRef });
-                        await repository.exec(['remote', 'remove', `pr-${prNumber}`]);
+                        // For forks, add a remote with pr-fork- prefix
+                        const forkOwner = pr.head.user?.login || pr.head.repo?.owner.login;
+                        if (!forkOwner) {
+                            throw new Error('Could not determine fork owner');
+                        }
+                        const forkRemoteName = `pr-fork-${forkOwner}`;
+                        
+                        this.log(`Fetching PR #${prNumber} from fork owned by ${forkOwner}: ${headRepoUrl}`);
+                        
+                        // Check if remote already exists, if not add it
+                        try {
+                            const existingUrl = (await repository.exec(['remote', 'get-url', forkRemoteName])).stdout.trim();
+                            // Update URL if it's different
+                            if (existingUrl !== headRepoUrl) {
+                                await repository.exec(['remote', 'set-url', forkRemoteName, headRepoUrl]);
+                                this.log(`Updated remote ${forkRemoteName} URL to ${headRepoUrl}`);
+                            }
+                        } catch {
+                            await repository.exec(['remote', 'add', forkRemoteName, headRepoUrl]);
+                            this.log(`Added remote ${forkRemoteName}`);
+                        }
+                        
+                        // Fetch the head ref from the fork
+                        await repository.fetch({ remote: forkRemoteName, ref: headRef });
+                        
+                        // Create/update local branch pointing to the fetched commit
+                        try {
+                            // Try to create new branch
+                            await repository.exec(['branch', localBranchName, headSha]);
+                        } catch {
+                            // Branch exists, force update it
+                            await repository.exec(['branch', '-f', localBranchName, headSha]);
+                        }
+                        
+                        // Set upstream to the fork remote
+                        await repository.exec(['branch', '--set-upstream-to', `${forkRemoteName}/${headRef}`, localBranchName]);
+                        
+                        this.log(`Created local branch ${localBranchName} tracking ${forkRemoteName}/${headRef}`);
                     } else {
-                        // For same repo, just fetch the branch
-                        this.log(`Fetching branch: ${headRef}`);
-                        await repository.fetch({ remote: 'origin', ref: headRef });
+                        // For same repo, use GitHub's pull/<id>/head refspec
+                        this.log(`Fetching PR #${prNumber} from origin`);
+                        await repository.exec(['fetch', 'origin', `pull/${prNumber}/head:${localBranchName}`]);
+                        
+                        // Set upstream to origin/<headRef> if the branch exists there
+                        try {
+                            await repository.exec(['rev-parse', '--verify', `origin/${headRef}`]);
+                            await repository.exec(['branch', '--set-upstream-to', `origin/${headRef}`, localBranchName]);
+                            this.log(`Created local branch ${localBranchName} tracking origin/${headRef}`);
+                        } catch {
+                            this.log(`Created local branch ${localBranchName} (no upstream - origin/${headRef} not found)`);
+                        }
                     }
                 } catch (e: any) {
-                    this.log('Fetch error (may be ok if already fetched)', e);
-                    // Continue even if fetch fails - the commit might already be available
-                }
-
-                // Checkout the head commit
-                try {
-                    this.log(`Checking out commit: ${headSha}`);
-                    await repository.checkout(headSha, [], { detached: true });
-                } catch (e: any) {
-                    let msg = 'Failed to checkout PR head commit';
+                    let msg = 'Failed to fetch and create PR branch';
                     this.log(msg, e);
                     window.showErrorMessage(`${msg}: ${e.message}`);
                     return;
                 }
 
-                // Update the comparison base to the PR base branch
+                // Checkout the local PR branch
                 try {
-                    this.log(`Updating base to: ${baseRef}`);
-                    await this.updateRefs(baseRef);
+                    this.log(`Checking out branch: ${localBranchName}`);
+                    await repository.checkout(localBranchName, []);
+                } catch (e: any) {
+                    let msg = 'Failed to checkout PR branch';
+                    this.log(msg, e);
+                    window.showErrorMessage(`${msg}: ${e.message}`);
+                    return;
+                }
+
+                // Update the comparison base to the PR base branch (use origin/* to avoid stale refs)
+                try {
+                    const originBaseRef = `origin/${baseRef}`;
+                    this.log(`Updating base to: ${originBaseRef}`);
+                    await this.updateRefs(originBaseRef);
                     await this.updateDiff(false);
                     this.log('Refreshing tree');
                     this._onDidChangeTreeData.fire();
