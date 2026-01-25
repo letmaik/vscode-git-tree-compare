@@ -1,3 +1,7 @@
+## 1.19.0
+
+* Add GitHub PR comparison command [#130](https://github.com/letmaik/vscode-git-tree-compare/pull/130)
+
 ## 1.18.0
 
 * Add configurable rename detection threshold [#115](https://github.com/letmaik/vscode-git-tree-compare/pull/115)
