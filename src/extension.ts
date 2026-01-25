@@ -103,11 +103,30 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.copyRelativePath', node => {
         runAfterInit(() => provider!.copyRelativePath(node));
     });
+    commands.registerCommand(NAMESPACE + '.sortByName', () => {
+        runAfterInit(() => provider!.sortByName());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByPath', () => {
+        runAfterInit(() => provider!.sortByPath());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByStatus', () => {
+        runAfterInit(() => provider!.sortByStatus());
+    });
+    commands.registerCommand(NAMESPACE + '.sortByRecentlyModified', () => {
+        runAfterInit(() => provider!.sortByRecentlyModified());
+    });
+
+    commands.registerCommand(NAMESPACE + '.openChangesWithDifftool', node => {
+        runAfterInit(() => provider!.openChangesWithDifftool(node));
+    });
 
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
+
+        // Set initial context for menu enablement (starts in tree view mode)
+        commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
