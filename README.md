@@ -46,7 +46,7 @@ You can quickly view GitHub PR changes directly in VS Code using the **Compare G
 4. Authenticate with GitHub if prompted (uses VS Code's built-in GitHub authentication)
 5. The extension will:
    - Fetch the PR's head commit
-   - Checkout the PR branch
+   - Checkout the PR branch as `pr/<number>/<headOwner>/<headRefName>`
    - Compare it against the PR's base branch
    - Display all changes in the tree view
 
