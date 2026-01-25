@@ -17,12 +17,26 @@ import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 
+type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+
+const STATUS_SORT_ORDER: { [key: string]: number } = {
+    'M': 0, // Modified
+    'A': 1, // Added
+    'D': 2, // Deleted
+    'R': 3, // Renamed
+    'C': 4, // Conflict
+    'U': 5, // Untracked
+    'T': 6  // Type change
+};
+
 interface CheckboxStateInfo {
     state: TreeItemCheckboxState;
     timestamp: number; // When the checkbox was checked
 }
 
 class FileElement implements IDiffStatus {
+    modificationDate?: Date;
+
     constructor(
         public srcAbsPath: string,
         public dstAbsPath: string,
@@ -112,6 +126,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private resetCheckboxOnFileChange: boolean;
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
+    private sortOrder: SortOrder;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -358,6 +373,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
+        this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -683,7 +699,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
-        if (fireChangeEvents && treeHasChanged) {
+        // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
+        const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
+        
+        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
             this.log('Refreshing tree')
             this._onDidChangeTreeData.fire();
         }
@@ -769,6 +788,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldshowCheckboxes = this.showCheckboxes;
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
+        const oldSortOrder = this.sortOrder;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -782,7 +802,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldCompactFolders != this.compactFolders ||
             oldshowCheckboxes != this.showCheckboxes ||
             oldOmitUntrackedFiles != this.omitUntrackedFiles ||
-            oldOmitUnstagedChanges != this.omitUnstagedChanges) {
+            oldOmitUnstagedChanges != this.omitUnstagedChanges ||
+            oldSortOrder != this.sortOrder) {
 
             if (!this.repository) {
                 return;
@@ -887,7 +908,66 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
         }
 
+        // Apply sorting logic only for list view and non-path sorting
+        // (path sorting uses the existing default logic)
+        if (this.viewAsList && this.sortOrder !== 'path') {
+            this.applySorting(entries);
+        }
+
         return entries
+    }
+
+    private applySorting(entries: FileSystemElement[]) {
+        // Separate files from folders (folders should stay at the top)
+        const fileElements = entries.filter(e => e instanceof FileElement) as FileElement[];
+        const folderElements = entries.filter(e => e instanceof FolderElement);
+
+        // Populate modification dates if sorting by recently modified
+        if (this.sortOrder === 'recentlyModified') {
+            for (const file of fileElements) {
+                try {
+                    const stats = fs.statSync(file.dstAbsPath);
+                    file.modificationDate = stats.mtime;
+                } catch (e) {
+                    // If file doesn't exist (e.g., deleted), use epoch
+                    file.modificationDate = new Date(0);
+                }
+            }
+        }
+
+        // Sort files based on sort order
+        switch (this.sortOrder) {
+            case 'name':
+                fileElements.sort((a, b) => a.label.localeCompare(b.label));
+                break;
+            case 'status':
+                fileElements.sort((a, b) => {
+                    const aOrder = STATUS_SORT_ORDER[a.status] ?? 99;
+                    const bOrder = STATUS_SORT_ORDER[b.status] ?? 99;
+                    if (aOrder !== bOrder) {
+                        return aOrder - bOrder;
+                    }
+                    // Secondary sort by path
+                    return a.dstRelPath.localeCompare(b.dstRelPath);
+                });
+                break;
+            case 'recentlyModified':
+                fileElements.sort((a, b) => {
+                    const aTime = a.modificationDate?.getTime() ?? 0;
+                    const bTime = b.modificationDate?.getTime() ?? 0;
+                    // Sort descending (most recent first)
+                    if (bTime !== aTime) {
+                        return bTime - aTime;
+                    }
+                    // Secondary sort by path
+                    return a.dstRelPath.localeCompare(b.dstRelPath);
+                });
+                break;
+        }
+
+        // Replace entries array with sorted files (folders first, then sorted files)
+        entries.length = 0;
+        entries.push(...folderElements, ...fileElements);
     }
 
     private getDiffStatus(fileEntry?: FileElement): IDiffStatus | undefined {
@@ -1213,6 +1293,26 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
         this.log('Refreshing tree');
         this._onDidChangeTreeData.fire();
+    }
+
+    async sortByName() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('sortOrder', 'name', true);
+    }
+
+    async sortByPath() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('sortOrder', 'path', true);
+    }
+
+    async sortByStatus() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('sortOrder', 'status', true);
+    }
+
+    async sortByRecentlyModified() {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('sortOrder', 'recentlyModified', true);
     }
 
     async searchChanges() {

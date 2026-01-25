@@ -165,12 +165,72 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.sortByName",
+                "title": "Sort by Name",
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
+            },
+            {
+                "command": "gitTreeCompare.sortByPath",
+                "title": "Sort by Path",
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
+            },
+            {
+                "command": "gitTreeCompare.sortByStatus",
+                "title": "Sort by Status",
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
+            },
+            {
+                "command": "gitTreeCompare.sortByRecentlyModified",
+                "title": "Sort by Recently Modified",
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
+            },
+            {
                 "command": "gitTreeCompare.openChangesWithDifftool",
                 "title": "Open Changes with Difftool",
                 "category": "Git Tree Compare"
             }
         ],
+        "submenus": [
+            {
+                "id": "gitTreeCompare.viewAndSort",
+                "label": "View & Sort"
+            }
+        ],
         "menus": {
+            "gitTreeCompare.viewAndSort": [
+                {
+                    "command": "gitTreeCompare.viewAsList",
+                    "group": "1_view@1"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsTree",
+                    "group": "1_view@2"
+                },
+                {
+                    "command": "gitTreeCompare.sortByName",
+                    "group": "2_sort@1",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByPath",
+                    "group": "2_sort@2",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByStatus",
+                    "group": "2_sort@3",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByRecentlyModified",
+                    "group": "2_sort@4",
+                    "enablement": "gitTreeCompare.viewAsList"
+                }
+            ],
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeRepository",
@@ -246,6 +306,11 @@
                     "command": "gitTreeCompare.searchChanges",
                     "when": "view == gitTreeCompare",
                     "group": "2_files"
+                },
+                {
+                    "submenu": "gitTreeCompare.viewAndSort",
+                    "when": "view == gitTreeCompare",
+                    "group": "0_view_and_sort"
                 }
             ],
             "view/item/context": [
@@ -366,6 +431,11 @@
                     "group": "3_copy"
                 },
                 {
+                    "submenu": "gitTreeCompare.viewAndSort",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "0_view_and_sort"
+                },
+                {
                     "command": "gitTreeCompare.openChangesWithDifftool",
                     "when": "view == gitTreeCompare && viewItem == file && config.gitTreeCompare.openChangesWithDifftool",
                     "group": "1_open"
@@ -473,6 +543,17 @@
                     "type": "boolean",
                     "description": "Whether to omit unstaged changes from the diff. When enabled, only staged changes will appear in the tree.",
                     "default": false
+                },
+                "gitTreeCompare.sortOrder": {
+                    "type": "string",
+                    "enum": [
+                        "name",
+                        "path",
+                        "status",
+                        "recentlyModified"
+                    ],
+                    "description": "How to sort files when viewing as list. Only applies in list view mode. 'name' sorts by file name, 'path' sorts by full path, 'status' sorts by git status, 'recentlyModified' sorts by modification date with most recent first.",
+                    "default": "path"
                 },
                 "gitTreeCompare.openChangesWithDifftool": {
                     "type": "boolean",
