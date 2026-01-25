@@ -1257,15 +1257,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const { dstAbsPath, status } = diffStatus;
 
-        // For deleted files, we can't really show a diff since the file doesn't exist
-        // For added/untracked files, there's no base version to compare against
+        // For deleted files, we can't show a diff since the file doesn't exist in the working tree
         if (status === 'D') {
             window.showInformationMessage('Cannot open difftool for deleted files.');
             return;
         }
 
+        // For added/untracked files, there's no base version to compare against
         if (status === 'U' || status === 'A') {
-            window.showInformationMessage('Cannot open difftool for added/untracked files.');
+            window.showInformationMessage('Cannot open difftool for untracked or newly added files that are not in the base commit.');
             return;
         }
 
@@ -1281,7 +1281,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             await this.repository.exec(args);
         } catch (error: any) {
             const errorMessage = error.stderr || error.message || 'Unknown error';
-            if (errorMessage.includes('diff.tool') || errorMessage.includes('not configured')) {
+            // Check for common error patterns indicating difftool is not configured
+            // Note: Error messages may vary across Git versions and locales
+            if (errorMessage.includes('diff.tool') || errorMessage.includes('not configured') || errorMessage.includes('difftool') && errorMessage.includes('unknown')) {
                 window.showErrorMessage(
                     'Git difftool is not configured. Please configure your diff tool in Git settings (e.g., git config --global diff.tool <tool-name>).',
                 );
