@@ -374,8 +374,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
-        // Set context for UI state
-        commands.executeCommand('setContext', NAMESPACE + '.sortOrder', this.sortOrder);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -701,7 +699,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
-        if (fireChangeEvents && treeHasChanged) {
+        // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
+        const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
+        
+        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
             this.log('Refreshing tree')
             this._onDidChangeTreeData.fire();
         }

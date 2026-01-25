@@ -167,25 +167,65 @@
             {
                 "command": "gitTreeCompare.sortByName",
                 "title": "Sort by Name",
-                "category": "Git Tree Compare"
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
             },
             {
                 "command": "gitTreeCompare.sortByPath",
                 "title": "Sort by Path",
-                "category": "Git Tree Compare"
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
             },
             {
                 "command": "gitTreeCompare.sortByStatus",
                 "title": "Sort by Status",
-                "category": "Git Tree Compare"
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
             },
             {
                 "command": "gitTreeCompare.sortByRecentlyModified",
                 "title": "Sort by Recently Modified",
-                "category": "Git Tree Compare"
+                "category": "Git Tree Compare",
+                "enablement": "gitTreeCompare.viewAsList"
+            }
+        ],
+        "submenus": [
+            {
+                "id": "gitTreeCompare.viewAndSort",
+                "label": "View & Sort"
             }
         ],
         "menus": {
+            "gitTreeCompare.viewAndSort": [
+                {
+                    "command": "gitTreeCompare.viewAsList",
+                    "group": "1_view@1"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsTree",
+                    "group": "1_view@2"
+                },
+                {
+                    "command": "gitTreeCompare.sortByName",
+                    "group": "2_sort@1",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByPath",
+                    "group": "2_sort@2",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByStatus",
+                    "group": "2_sort@3",
+                    "enablement": "gitTreeCompare.viewAsList"
+                },
+                {
+                    "command": "gitTreeCompare.sortByRecentlyModified",
+                    "group": "2_sort@4",
+                    "enablement": "gitTreeCompare.viewAsList"
+                }
+            ],
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeRepository",
@@ -263,34 +303,9 @@
                     "group": "2_files"
                 },
                 {
-                    "command": "gitTreeCompare.viewAsList",
-                    "when": "view == gitTreeCompare && !gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@1"
-                },
-                {
-                    "command": "gitTreeCompare.viewAsTree",
-                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@1"
-                },
-                {
-                    "command": "gitTreeCompare.sortByName",
-                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByPath",
-                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByStatus",
-                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByRecentlyModified",
-                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
+                    "submenu": "gitTreeCompare.viewAndSort",
+                    "when": "view == gitTreeCompare",
+                    "group": "0_view_and_sort"
                 }
             ],
             "view/item/context": [
@@ -411,34 +426,9 @@
                     "group": "3_copy"
                 },
                 {
-                    "command": "gitTreeCompare.viewAsList",
-                    "when": "view == gitTreeCompare && viewItem == ref && !gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@1"
-                },
-                {
-                    "command": "gitTreeCompare.viewAsTree",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@1"
-                },
-                {
-                    "command": "gitTreeCompare.sortByName",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByPath",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByStatus",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
-                },
-                {
-                    "command": "gitTreeCompare.sortByRecentlyModified",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitTreeCompare.viewAsList",
-                    "group": "0_view_and_sort@2"
+                    "submenu": "gitTreeCompare.viewAndSort",
+                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "group": "0_view_and_sort"
                 }
             ]
         },
