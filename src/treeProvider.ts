@@ -767,6 +767,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldRenameThreshold = this.renameThreshold;
         const oldCompactFolders = this.compactFolders;
         const oldshowCheckboxes = this.showCheckboxes;
+        const oldOmitUntrackedFiles = this.omitUntrackedFiles;
+        const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -778,7 +780,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldFindRenames != this.findRenames ||
             oldRenameThreshold != this.renameThreshold ||
             oldCompactFolders != this.compactFolders ||
-            oldshowCheckboxes != this.showCheckboxes) {
+            oldshowCheckboxes != this.showCheckboxes ||
+            oldOmitUntrackedFiles != this.omitUntrackedFiles ||
+            oldOmitUnstagedChanges != this.omitUnstagedChanges) {
 
             if (!this.repository) {
                 return;
@@ -794,7 +798,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 oldRenameThreshold != this.renameThreshold ||
                 oldTreeRoot != this.treeRoot ||
                 (!oldAutoRefresh && this.autoRefresh) ||
-                (!oldRefreshIndex && this.refreshIndex)) {
+                (!oldRefreshIndex && this.refreshIndex) ||
+                oldOmitUntrackedFiles != this.omitUntrackedFiles ||
+                oldOmitUnstagedChanges != this.omitUnstagedChanges) {
                 await this.updateRefs(this.baseRef);
                 await this.updateDiff(false);
             }
