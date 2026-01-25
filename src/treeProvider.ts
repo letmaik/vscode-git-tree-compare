@@ -1183,18 +1183,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const repository = this.repository;
 
-        // Check for uncommitted changes
+        // Check for uncommitted changes (ignoring untracked files)
         try {
-            if (await hasUncommittedChanges(repository, repository.root)) {
-                const proceed = await window.showWarningMessage(
-                    'You have uncommitted changes. Checking out the PR will discard them. Continue?',
-                    { modal: true },
-                    'Continue',
-                    'Cancel'
+            if (await hasUncommittedChanges(repository, repository.root, true)) {
+                window.showErrorMessage(
+                    'Please commit your changes or stash them before continuing.',
+                    { modal: true }
                 );
-                if (proceed !== 'Continue') {
                     return;
-                }
             }
         } catch (e: any) {
             this.log('Error checking for uncommitted changes', e);

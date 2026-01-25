@@ -237,8 +237,13 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     return statuses;
 }
 
-export async function hasUncommittedChanges(repo: Repository, path: string): Promise<boolean> {
-    const result = await repo.exec(['status', '-z', path]);
+export async function hasUncommittedChanges(repo: Repository, path: string, ignoreUntracked: boolean = false): Promise<boolean> {
+    const args = ['status', '-z'];
+    if (ignoreUntracked) {
+        args.push('-uno');
+    }
+    args.push(path);
+    const result = await repo.exec(args);
     return result.stdout.trim() !== '';
 }
 
