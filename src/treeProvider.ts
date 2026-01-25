@@ -1244,6 +1244,54 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await env.clipboard.writeText(relativePath);
     }
 
+    async openChangesWithDifftool(fileEntry: FileElement) {
+        const diffStatus = this.getDiffStatus(fileEntry);
+        if (!diffStatus) {
+            return;
+        }
+
+        if (!this.repository) {
+            window.showErrorMessage('No repository is active.');
+            return;
+        }
+
+        const { dstAbsPath, status } = diffStatus;
+
+        // For deleted files, we can't really show a diff since the file doesn't exist
+        // For added/untracked files, there's no base version to compare against
+        if (status === 'D') {
+            window.showInformationMessage('Cannot open difftool for deleted files.');
+            return;
+        }
+
+        if (status === 'U' || status === 'A') {
+            window.showInformationMessage('Cannot open difftool for added/untracked files.');
+            return;
+        }
+
+        // Calculate relative path from repository root
+        const dstRelPath = path.relative(this.repository.root, dstAbsPath);
+
+        // For modified files, use git difftool
+        // Use the mergeBase as the comparison base
+        const args = ['difftool', '--no-prompt', this.mergeBase, '--', dstRelPath];
+
+        try {
+            // Execute git difftool - this will launch the external tool
+            await this.repository.exec(args);
+        } catch (error: any) {
+            const errorMessage = error.stderr || error.message || 'Unknown error';
+            if (errorMessage.includes('diff.tool') || errorMessage.includes('not configured')) {
+                window.showErrorMessage(
+                    'Git difftool is not configured. Please configure your diff tool in Git settings (e.g., git config --global diff.tool <tool-name>).',
+                );
+            } else {
+                window.showErrorMessage(`Failed to open difftool: ${errorMessage}`);
+            }
+            this.log(`Failed to open difftool: ${errorMessage}`);
+        }
+    }
+
     dispose(): void {
         this.disposables.forEach(d => d.dispose());
     }
