@@ -1394,7 +1394,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         
                         // Set upstream to origin/<headRef> if the branch exists there
                         try {
-                            await repository.exec(['rev-parse', '--verify', `origin/${headRef}`]);
+                            // Fetch the actual head ref to update the remote tracking branch
+                            await repository.fetch({ remote: 'origin', ref: headRef });
                             await repository.exec(['branch', '--set-upstream-to', `origin/${headRef}`, localBranchName]);
                             this.log(`Created local branch ${localBranchName} tracking origin/${headRef}`);
                         } catch {
