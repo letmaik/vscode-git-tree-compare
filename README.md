@@ -12,7 +12,7 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Working tree comparison against any chosen branch, tag, or commit
 
-- **Compare GitHub Pull Requests** - Enter a PR URL to quickly view and compare PR changes without leaving VS Code
+- Compare GitHub Pull Requests
 
 - Switch between tree and list view
 
@@ -50,9 +50,7 @@ You can quickly view GitHub PR changes directly in VS Code using the **Compare G
    - Compare it against the PR's base branch
    - Display all changes in the tree view
 
-This feature works with both PRs from the same repository and PRs from forks. If you have uncommitted changes, you'll be prompted to confirm before checking out the PR.
-
-**Note:** This will checkout the PR in detached HEAD state. You can switch back to your previous branch using the Source Control view or by running `git checkout <branch-name>` in the terminal.
+This feature works with both PRs from the same repository and PRs from forks.
 
 ## Settings
 
