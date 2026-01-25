@@ -60,6 +60,11 @@ export function activate(context: ExtensionContext) {
             provider!.promptChangeBase();
         });
     });
+    commands.registerCommand(NAMESPACE + '.compareGitHubPullRequest', () => {
+        runAfterInit(() => {
+            provider!.compareGitHubPullRequest();
+        });
+    });
     commands.registerCommand(NAMESPACE + '.refresh', () => {
         runAfterInit(() => {
             provider!.manualRefresh();

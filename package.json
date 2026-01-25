@@ -163,6 +163,12 @@
                 "command": "gitTreeCompare.copyRelativePath",
                 "title": "Copy Relative Path",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.compareGitHubPullRequest",
+                "title": "Compare GitHub Pull Request...",
+                "icon": "$(github)",
+                "category": "Git Tree Compare"
             }
         ],
         "menus": {
@@ -179,6 +185,11 @@
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare",
+                    "group": "1_state"
+                },
+                {
+                    "command": "gitTreeCompare.compareGitHubPullRequest",
                     "when": "view == gitTreeCompare",
                     "group": "1_state"
                 },
@@ -486,6 +497,7 @@
         "webpack-cli": "^4.2.0"
     },
     "dependencies": {
+        "@octokit/rest": "^22.0.1",
         "@vscode/iconv-lite-umd": "0.7.0",
         "byline": "^5.0.0",
         "file-type": "^7.2.0",

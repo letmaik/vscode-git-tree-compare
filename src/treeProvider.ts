@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -16,6 +16,7 @@ import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
+import { Octokit } from '@octokit/rest';
 
 interface CheckboxStateInfo {
     state: TreeItemCheckboxState;
@@ -1171,6 +1172,127 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             this.log('Refreshing tree');
             this._onDidChangeTreeData.fire();
+        });
+    }
+
+    async compareGitHubPullRequest() {
+        if (!this.repository) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+
+        const repository = this.repository;
+
+        // Prompt for PR URL
+        const prUrl = await window.showInputBox({
+            prompt: 'Enter GitHub Pull Request URL',
+            placeHolder: 'https://github.com/owner/repo/pull/123',
+            validateInput: (value: string) => {
+                const match = value.match(/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+                if (!match) {
+                    return 'Invalid GitHub PR URL. Expected format: https://github.com/owner/repo/pull/123';
+                }
+                return null;
+            }
+        });
+
+        if (!prUrl) {
+            return;
+        }
+
+        // Parse the PR URL
+        const match = prUrl.match(/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+        if (!match) {
+            window.showErrorMessage('Invalid GitHub PR URL format');
+            return;
+        }
+
+        const [, owner, repo, prNumberStr] = match;
+        const prNumber = parseInt(prNumberStr, 10);
+
+        await window.withProgress({
+            location: ProgressLocation.Notification,
+            title: `Fetching PR #${prNumber} from ${owner}/${repo}`,
+            cancellable: false
+        }, async () => {
+            try {
+                // Authenticate with GitHub
+                const session = await authentication.getSession('github', ['repo'], { createIfNone: true });
+                const octokit = new Octokit({ auth: session.accessToken });
+
+                // Fetch PR details
+                this.log(`Fetching PR details for ${owner}/${repo}#${prNumber}`);
+                const { data: pr } = await octokit.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: prNumber
+                });
+
+                // Extract base and head information
+                const baseRef = pr.base.ref;
+                const headRef = pr.head.ref;
+                const headSha = pr.head.sha;
+
+                this.log(`PR #${prNumber}: base=${baseRef}, head=${headRef}, sha=${headSha}`);
+
+                // Fetch the PR branch if it's from a fork
+                const headRepo = pr.head.repo;
+                if (!headRepo) {
+                    window.showErrorMessage('Cannot access PR head repository. It may have been deleted.');
+                    return;
+                }
+
+                const headRepoUrl = headRepo.clone_url;
+                const isFork = headRepo.full_name !== pr.base.repo.full_name;
+
+                // Fetch the head branch
+                try {
+                    if (isFork) {
+                        // For forks, we need to add a remote and fetch
+                        this.log(`Fetching from fork: ${headRepoUrl}`);
+                        await repository.exec(['remote', 'add', `pr-${prNumber}`, headRepoUrl]);
+                        await repository.fetch({ remote: `pr-${prNumber}`, ref: headRef });
+                        await repository.exec(['remote', 'remove', `pr-${prNumber}`]);
+                    } else {
+                        // For same repo, just fetch the branch
+                        this.log(`Fetching branch: ${headRef}`);
+                        await repository.fetch({ remote: 'origin', ref: headRef });
+                    }
+                } catch (e: any) {
+                    this.log('Fetch error (may be ok if already fetched)', e);
+                    // Continue even if fetch fails - the commit might already be available
+                }
+
+                // Checkout the head commit
+                try {
+                    this.log(`Checking out commit: ${headSha}`);
+                    await repository.checkout(headSha, [], { detached: true });
+                } catch (e: any) {
+                    let msg = 'Failed to checkout PR head commit';
+                    this.log(msg, e);
+                    window.showErrorMessage(`${msg}: ${e.message}`);
+                    return;
+                }
+
+                // Update the comparison base to the PR base branch
+                try {
+                    this.log(`Updating base to: ${baseRef}`);
+                    await this.updateRefs(baseRef);
+                    await this.updateDiff(false);
+                    this.log('Refreshing tree');
+                    this._onDidChangeTreeData.fire();
+                    window.showInformationMessage(`Now comparing PR #${prNumber}: ${pr.title}`);
+                } catch (e: any) {
+                    let msg = 'Failed to update comparison base';
+                    this.log(msg, e);
+                    window.showErrorMessage(`${msg}: ${e.message}`);
+                    return;
+                }
+            } catch (e: any) {
+                let msg = 'Failed to fetch GitHub PR';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message || e}`);
+            }
         });
     }
 
