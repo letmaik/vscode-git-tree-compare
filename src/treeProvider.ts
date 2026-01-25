@@ -1340,20 +1340,23 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const headRepoUrl = headRepo.clone_url;
                 const isFork = headRepo.full_name !== pr.base.repo.full_name;
 
-                // Create a local branch name for the PR
-                const localBranchName = `pr/${prNumber}`;
+                // Extract head owner for branch naming
+                const headOwner = pr.head.user?.login || pr.head.repo?.owner.login;
+                if (!headOwner) {
+                    window.showErrorMessage('Could not determine PR head owner.');
+                    return;
+                }
+
+                // Create a local branch name for the PR with owner and ref name
+                const localBranchName = `pr/${prNumber}/${headOwner}/${headRef}`;
 
                 // Fetch and create/update local branch for the PR
                 try {
                     if (isFork) {
                         // For forks, add a remote with pr-fork- prefix
-                        const forkOwner = pr.head.user?.login || pr.head.repo?.owner.login;
-                        if (!forkOwner) {
-                            throw new Error('Could not determine fork owner');
-                        }
-                        const forkRemoteName = `pr-fork-${forkOwner}`;
+                        const forkRemoteName = `pr-fork-${headOwner}`;
                         
-                        this.log(`Fetching PR #${prNumber} from fork owned by ${forkOwner}: ${headRepoUrl}`);
+                        this.log(`Fetching PR #${prNumber} from fork owned by ${headOwner}: ${headRepoUrl}`);
                         
                         // Check if remote already exists, if not add it
                         try {
