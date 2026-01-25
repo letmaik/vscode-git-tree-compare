@@ -908,8 +908,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
         }
 
-        // Apply sorting logic only for list view
-        if (this.viewAsList) {
+        // Apply sorting logic only for list view and non-path sorting
+        // (path sorting uses the existing default logic)
+        if (this.viewAsList && this.sortOrder !== 'path') {
             this.applySorting(entries);
         }
 
@@ -938,9 +939,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         switch (this.sortOrder) {
             case 'name':
                 fileElements.sort((a, b) => a.label.localeCompare(b.label));
-                break;
-            case 'path':
-                fileElements.sort((a, b) => a.dstRelPath.localeCompare(b.dstRelPath));
                 break;
             case 'status':
                 fileElements.sort((a, b) => {
