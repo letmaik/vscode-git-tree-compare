@@ -30,6 +30,18 @@ const STATUS_SORT_ORDER: { [key: string]: number } = {
     'T': 6  // Type change
 };
 
+type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+
+const STATUS_SORT_ORDER: { [key: string]: number } = {
+    'M': 0, // Modified
+    'A': 1, // Added
+    'D': 2, // Deleted
+    'R': 3, // Renamed
+    'C': 4, // Conflict
+    'U': 5, // Untracked
+    'T': 6  // Type change
+};
+
 interface CheckboxStateInfo {
     state: TreeItemCheckboxState;
     timestamp: number; // When the checkbox was checked
