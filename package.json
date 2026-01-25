@@ -261,6 +261,36 @@
                     "command": "gitTreeCompare.searchChanges",
                     "when": "view == gitTreeCompare",
                     "group": "2_files"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsList",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@1"
+                },
+                {
+                    "command": "gitTreeCompare.viewAsTree",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@1"
+                },
+                {
+                    "command": "gitTreeCompare.sortByName",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@2"
+                },
+                {
+                    "command": "gitTreeCompare.sortByPath",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@2"
+                },
+                {
+                    "command": "gitTreeCompare.sortByStatus",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@2"
+                },
+                {
+                    "command": "gitTreeCompare.sortByRecentlyModified",
+                    "when": "view == gitTreeCompare && gitTreeCompare.viewAsList",
+                    "group": "0_view_and_sort@2"
                 }
             ],
             "view/item/context": [
