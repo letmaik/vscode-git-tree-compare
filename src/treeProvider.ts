@@ -381,7 +381,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.headCommit}-${this.mergeBase}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.diff`);
             
             if (!fs.existsSync(storagePath)) {
                 return false;
@@ -422,7 +422,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.headCommit}-${this.mergeBase}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.diff`);
             
             // Structure pour stocker les hunks par fichier avec leur contenu complet
             const fileHunks = new Map<string, Array<{oldStart: number, oldLines: number, newStart: number, newLines: number, header: string, lines: string[]}>>();
