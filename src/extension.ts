@@ -94,6 +94,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.hideCheckboxes', () => {
         runAfterInit(() => provider!.hideCheckboxes(true));
     });
+    commands.registerCommand(NAMESPACE + '.showDiffDetails', () => {
+        runAfterInit(() => provider!.hideDiffDetails(false));
+    });
+    commands.registerCommand(NAMESPACE + '.hideDiffDetails', () => {
+        runAfterInit(() => provider!.hideDiffDetails(true));
+    });
     commands.registerCommand(NAMESPACE + '.viewAsList', () => {
         runAfterInit(() => provider!.viewAsTree(false));
     });

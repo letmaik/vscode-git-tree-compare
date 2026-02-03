@@ -144,6 +144,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private showCollapsed: boolean;
     private compactFolders: boolean;
     private showCheckboxes: boolean;
+    private showDiffDetails: boolean;
     private resetCheckboxOnFileChange: boolean;
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
@@ -396,7 +397,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.headCommit}-${this.mergeBase}.diff`);
             
             if (!fs.existsSync(storagePath)) {
                 return false;
@@ -437,7 +438,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.headCommit}-${this.mergeBase}.diff`);
             
             // Structure pour stocker les hunks par fichier avec leur contenu complet
             const fileHunks = new Map<string, Array<{oldStart: number, oldLines: number, newStart: number, newLines: number, header: string, lines: string[]}>>();
@@ -587,6 +588,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.showCollapsed = config.get<boolean>('collapsed', false);
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
+        this.showDiffDetails = config.get<boolean>('showDiffDetails', true);
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
@@ -638,7 +640,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 checkboxState = this.isHunkChecked(element) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
             }
         }
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.showDiffDetails, this.asAbsolutePath);
     }
 
     private async computeFileCheckboxState(file: FileElement): Promise<TreeItemCheckboxState> {
@@ -1141,6 +1143,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldRenameThreshold = this.renameThreshold;
         const oldCompactFolders = this.compactFolders;
         const oldshowCheckboxes = this.showCheckboxes;
+        const oldShowDiffDetails = this.showDiffDetails;
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         const oldSortOrder = this.sortOrder;
@@ -1156,6 +1159,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldRenameThreshold != this.renameThreshold ||
             oldCompactFolders != this.compactFolders ||
             oldshowCheckboxes != this.showCheckboxes ||
+            oldShowDiffDetails != this.showDiffDetails ||
             oldOmitUntrackedFiles != this.omitUntrackedFiles ||
             oldOmitUnstagedChanges != this.omitUnstagedChanges ||
             oldSortOrder != this.sortOrder) {
@@ -1848,6 +1852,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('showCheckboxes', !v, true);
     }
 
+    async hideDiffDetails(v: boolean) {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('showDiffDetails', !v, true);
+    }
+
     viewAsTree(v: boolean) {
         const viewAsList = !v;
         if (viewAsList === this.viewAsList)
@@ -1965,10 +1974,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
                     showCollapsed: boolean, viewAsList: boolean,
                     checkboxState: TreeItemCheckboxState | undefined,
+                    showDiffDetails: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
-        const item = new TreeItem(element.label, TreeItemCollapsibleState.Collapsed);
+        const item = new TreeItem(element.label, showDiffDetails ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None);
         const statusText = getStatusText(element);
         item.tooltip = `${element.dstAbsPath} • ${statusText}`;
         if (element.srcAbsPath !== element.dstAbsPath) {

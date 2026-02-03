@@ -137,6 +137,16 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.showDiffDetails",
+                "title": "Show diff details",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.hideDiffDetails",
+                "title": "Hide diff details",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.viewAsList",
                 "title": "View as List",
                 "icon": "$(list-flat)",
@@ -301,6 +311,16 @@
                 {
                     "command": "gitTreeCompare.hideCheckboxes",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes",
+                    "group": "3_options"
+                },
+                {
+                    "command": "gitTreeCompare.showDiffDetails",
+                    "when": "view == gitTreeCompare && !config.gitTreeCompare.showDiffDetails",
+                    "group": "3_options"
+                },
+                {
+                    "command": "gitTreeCompare.hideDiffDetails",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.showDiffDetails",
                     "group": "3_options"
                 },
                 {
@@ -530,6 +550,11 @@
                     "type": "boolean",
                     "description": "Whether to show checkboxes such that files or folders can be ticked off, for example when reviewing.",
                     "default": false
+                },
+                "gitTreeCompare.showDiffDetails": {
+                    "type": "boolean",
+                    "description": "Whether to show diff details (hunks) for each file. When enabled, files can be expanded to view individual changes.",
+                    "default": true
                 },
                 "gitTreeCompare.resetCheckboxOnFileChange": {
                     "type": "boolean",
