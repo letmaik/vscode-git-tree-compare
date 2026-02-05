@@ -155,6 +155,18 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.filterFiles",
+                "title": "Filter Files",
+                "icon": "$(filter)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.clearFilter",
+                "title": "Clear Filter",
+                "icon": "$(clear-all)",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.copyPath",
                 "title": "Copy Path",
                 "category": "Git Tree Compare"
@@ -317,6 +329,16 @@
                     "command": "gitTreeCompare.searchChanges",
                     "when": "view == gitTreeCompare",
                     "group": "2_files"
+                },
+                {
+                    "command": "gitTreeCompare.filterFiles",
+                    "when": "view == gitTreeCompare",
+                    "group": "navigation@4"
+                },
+                {
+                    "command": "gitTreeCompare.clearFilter",
+                    "when": "view == gitTreeCompare && gitTreeCompare.isFiltered",
+                    "group": "navigation@5"
                 },
                 {
                     "submenu": "gitTreeCompare.viewAndSort",

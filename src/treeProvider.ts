@@ -134,6 +134,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private repository: Repository | undefined;
     private baseRef: string;
     private viewAsList = false;
+    private searchFilter: string | undefined;
 
     // Static state of repository
     private workspaceFolder: string;
@@ -240,8 +241,20 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.updateTreeRootFolder();
         this.log('Using repository: ' + this.repoRoot);
 
-        const repoName = path.basename(repoRoot);
-        this.treeView.title = repoName;
+        this.updateTreeTitle();
+    }
+
+    private updateTreeTitle() {
+        if (!this.repository) {
+            this.treeView.title = 'none';
+            return;
+        }
+        const repoName = path.basename(this.repoRoot);
+        if (this.searchFilter) {
+            this.treeView.title = `${repoName} (filtered)`;
+        } else {
+            this.treeView.title = repoName;
+        }
     }
 
     async unsetRepository() {
@@ -249,7 +262,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this._onDidChangeTreeData.fire();
         this.log('No repository selected');
 
-        this.treeView.title = 'none';
+        this.updateTreeTitle();
     }
 
     async changeRepository(repositoryRoot: string) {
@@ -264,6 +277,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         this.checkboxStates.clear();
+        this.searchFilter = undefined;
+        this.updateFilterContext();
         this._onDidChangeTreeData.fire();
     }
 
@@ -831,6 +846,36 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
+    private matchesFilter(filePath: string, relPathBase: string): boolean {
+        if (!this.searchFilter) {
+            return true;
+        }
+        const fileName = path.basename(filePath);
+        const relativePath = path.relative(relPathBase, filePath);
+        const searchLower = this.searchFilter.toLowerCase();
+        return fileName.toLowerCase().includes(searchLower) ||
+               relativePath.toLowerCase().includes(searchLower);
+    }
+
+    private folderHasMatchingFiles(folder: string, useFilesOutsideTreeRoot: boolean): boolean {
+        if (!this.searchFilter) {
+            return true;
+        }
+        const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
+        const relPathBase = useFilesOutsideTreeRoot ? this.repoRoot : this.treeRoot;
+
+        for (const [folderPath, fileEntries] of files.entries()) {
+            if (folderPath === folder || folderPath.startsWith(folder + path.sep)) {
+                for (const file of fileEntries) {
+                    if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot: boolean): FileSystemElement[] {
         const entries: FileSystemElement[] = [];
         const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
@@ -849,14 +894,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             for (const folder2 of folders) {
                 const fileEntries = files.get(folder2)!;
                 for (const file of fileEntries) {
-                    const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                    if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                        const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
+                        entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                    }
                 }
             }
         } else if (this.compactFolders) {
             // add direct subfolders and apply compaction
             for (const folder2 of files.keys()) {
                 if (path.dirname(folder2) === folder) {
+                    if (!this.folderHasMatchingFiles(folder2, useFilesOutsideTreeRoot)) {
+                        continue;
+                    }
                     let compactedPath = folder2;
                     // not very efficient, needs a better data structure
                     outer: while (true) {
@@ -891,9 +941,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // add direct subfolders
             for (const folder2 of files.keys()) {
                 if (path.dirname(folder2) === folder) {
-                    const label = path.basename(folder2);
-                    entries.push(new FolderElement(
-                        label, folder2, useFilesOutsideTreeRoot));
+                    if (this.folderHasMatchingFiles(folder2, useFilesOutsideTreeRoot)) {
+                        const label = path.basename(folder2);
+                        entries.push(new FolderElement(
+                            label, folder2, useFilesOutsideTreeRoot));
+                    }
                 }
             }
             entries.sort((a, b) => path.basename(a.dstAbsPath).localeCompare(path.basename(b.dstAbsPath)));
@@ -905,8 +957,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                    const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
+                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                }
             }
         }
 
@@ -1512,6 +1566,39 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             filesToInclude: relativePaths.join(','),
             triggerSearch: true
         });
+    }
+
+    async filterFiles() {
+        const searchTerm = await window.showInputBox({
+            prompt: 'Enter text to filter files (leave empty to show all)',
+            placeHolder: 'Filter by filename or path...',
+            value: this.searchFilter || ''
+        });
+
+        if (searchTerm === undefined) {
+            return;
+        }
+
+        this.searchFilter = searchTerm.trim() || undefined;
+        this.updateTreeTitle();
+        this.updateFilterContext();
+        this.log(this.searchFilter ? `Filtering files by: ${this.searchFilter}` : 'Cleared file filter');
+        this._onDidChangeTreeData.fire();
+    }
+
+    clearFilter() {
+        if (!this.searchFilter) {
+            return;
+        }
+        this.searchFilter = undefined;
+        this.updateTreeTitle();
+        this.updateFilterContext();
+        this.log('Cleared file filter');
+        this._onDidChangeTreeData.fire();
+    }
+
+    private updateFilterContext() {
+        commands.executeCommand('setContext', NAMESPACE + '.isFiltered', !!this.searchFilter);
     }
 
     async copyPath(fileEntry: FileElement) {
