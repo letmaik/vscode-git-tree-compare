@@ -1,6 +1,7 @@
 import * as assert from 'assert'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as crypto from 'crypto'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
@@ -47,22 +48,17 @@ class FileElement implements IDiffStatus {
 }
 
 class DiffHunkElement {
+    static readonly HUNK_CONTEXT_LINES = 5;
     constructor(
         public fileElement: FileElement,
-        public oldStart: number,
-        public oldLines: number,
         public newStart: number,
-        public newLines: number,
-        public header: string,
         public preview: string,
-        public firstLine: string,
-        public lines: string[] = []) {}
+        public hash: string,
+        public status: 'A' | 'M' | 'D') {}
 
     get label(): string {
-        return `@@ -${this.oldStart},${this.oldLines} +${this.newStart},${this.newLines} @@`;
+        return this.preview || `Line ${this.newStart}`;
     }
-
-    
 }
 
 class FolderElement {
@@ -165,6 +161,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // Diff results
     private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
+    private hunksMap: Map<string, DiffHunkElement[]>;
 
     // UI parameters, derived
     private treeRoot: FolderAbsPath;
@@ -345,10 +342,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const diff: DiffHunkElement[][] = [[],[]];
         for (const [element, state] of e.items) {
             if (element instanceof FileElement) {
-                const childHunkPresent = e.items.some(([nextElement, _]) => nextElement instanceof DiffHunkElement && nextElement.fileElement === element);
+                const childHunkPresent = e.items.some(([nextElement, _]) => nextElement instanceof DiffHunkElement && nextElement.fileElement.dstAbsPath === element.dstAbsPath);
                 if (!childHunkPresent) {
                     // process only if hunk of these files are not already included in event
-                    const hunks = await this.getDiffHunks(element);
+                    const hunks = await this.getDiffHunks(element.dstAbsPath);
                     diff[state].push(...hunks);
                 }
             } else if (element instanceof FolderElement) {
@@ -358,9 +355,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     for (const [folderPath, fileEntries] of files.entries()) {
                         if (folderPath === element.dstAbsPath || folderPath.startsWith(element.dstAbsPath + path.sep)) {
                             for (const file of fileEntries) {
-                                const fileElement = new FileElement(file.srcAbsPath, file.dstAbsPath, 
-                                    path.relative(this.treeRoot, file.dstAbsPath), file.status, file.isSubmodule);
-                                const hunks = await this.getDiffHunks(fileElement);
+                                const hunks = await this.getDiffHunks(file.dstAbsPath);
                                 diff[state].push(...hunks);
                             }
                         }
@@ -381,36 +376,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
             
             if (!fs.existsSync(storagePath)) {
                 return false;
             }
             
             const content = fs.readFileSync(storagePath, 'utf-8');
-            const lines = content.split('\n');
+            const data = JSON.parse(content);
             
-            let currentFile = '';
             const targetFile = element.fileElement.dstAbsPath;
-            const targetLine = element.newStart;
+            const targetHash = element.hash;
             
-            for (const line of lines) {
-                if (line.startsWith('diff --git')) {
-                    const match = line.match(/b\/(.+)$/);
-                    if (match) {
-                        currentFile = match[1];
-                    }
-                } else if (line.startsWith('@@') && currentFile === targetFile) {
-                    const match = line.match(/^@@ -\d+,\d+ \+(\d+),\d+/);
-                    if (match) {
-                        const lineNum = parseInt(match[1]);
-                        if (lineNum === targetLine) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
+            return data[targetFile] && data[targetFile].includes(targetHash);
         } catch (error) {
             return false;
         }
@@ -422,119 +400,41 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
         try {
             const repoName = path.basename(this.repository.root);
-            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.diff`);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
             
-            // Structure pour stocker les hunks par fichier avec leur contenu complet
-            const fileHunks = new Map<string, Array<{oldStart: number, oldLines: number, newStart: number, newLines: number, header: string, lines: string[]}>>();
-            
-            // Lire le fichier existant et parser le format complet
+            // Lire le fichier existant
+            let data: { [filepath: string]: string[] } = {};
             if (fs.existsSync(storagePath)) {
                 const content = await fs.promises.readFile(storagePath, 'utf-8');
-                const lines = content.split('\n');
-                let currentFile = '';
-                let currentHunk: {oldStart: number, oldLines: number, newStart: number, newLines: number, header: string, lines: string[]} | null = null;
-                const hunkHeaderRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
-                
-                for (const line of lines) {
-                    if (line.startsWith('diff --git')) {
-                        if (currentHunk && currentFile) {
-                            if (!fileHunks.has(currentFile)) {
-                                fileHunks.set(currentFile, []);
-                            }
-                            fileHunks.get(currentFile)!.push(currentHunk);
-                        }
-                        const match = line.match(/b\/(.+)$/);
-                        if (match) {
-                            currentFile = match[1];
-                            currentHunk = null;
-                        }
-                    } else if (line.startsWith('---') || line.startsWith('+++')) {
-                        // Ignorer les headers de fichier
-                        continue;
-                    } else if (line.startsWith('@@')) {
-                        if (currentHunk && currentFile) {
-                            if (!fileHunks.has(currentFile)) {
-                                fileHunks.set(currentFile, []);
-                            }
-                            fileHunks.get(currentFile)!.push(currentHunk);
-                        }
-                        const match = hunkHeaderRegex.exec(line);
-                        if (match) {
-                            const oldStart = parseInt(match[1]);
-                            const oldLines = match[2] ? parseInt(match[2]) : 1;
-                            const newStart = parseInt(match[3]);
-                            const newLines = match[4] ? parseInt(match[4]) : 1;
-                            const header = match[5];
-                            currentHunk = {oldStart, oldLines, newStart, newLines, header, lines: []};
-                        }
-                    } else if (currentHunk && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))) {
-                        currentHunk.lines.push(line);
-                    }
-                }
-                
-                // Ajouter le dernier hunk
-                if (currentHunk && currentFile) {
-                    if (!fileHunks.has(currentFile)) {
-                        fileHunks.set(currentFile, []);
-                    }
-                    fileHunks.get(currentFile)!.push(currentHunk);
-                }
+                data = JSON.parse(content);
             }
             
-            // Traiter chaque élément du tableau
+            // Mettre à jour les hunks
             for (const element of elements) {
                 const filepath = element.fileElement.dstAbsPath;
-                const targetNewStart = element.newStart;
+                const hash = element.hash;
                 
-                if (!fileHunks.has(filepath)) {
-                    fileHunks.set(filepath, []);
+                if (!data[filepath]) {
+                    data[filepath] = [];
                 }
-                
-                const hunks = fileHunks.get(filepath)!;
-                const existingIndex = hunks.findIndex(h => h.newStart === targetNewStart);
                 
                 if (added) {
-                    // Ajouter le hunk s'il n'existe pas déjà
-                    if (existingIndex < 0) {
-                        hunks.push({
-                            oldStart: element.oldStart,
-                            oldLines: element.oldLines,
-                            newStart: element.newStart,
-                            newLines: element.newLines,
-                            header: element.header,
-                            lines: element.lines
-                        });
-                        // Trier les hunks par position
-                        hunks.sort((a, b) => a.newStart - b.newStart);
+                    // Ajouter le hash s'il n'existe pas déjà
+                    if (!data[filepath].includes(hash)) {
+                        data[filepath].push(hash);
                     }
                 } else {
-                    // Retirer le hunk
-                    if (existingIndex >= 0) {
-                        hunks.splice(existingIndex, 1);
-                        if (hunks.length === 0) {
-                            fileHunks.delete(filepath);
-                        }
-                    }
-                }
-            }
-            
-            // Générer le fichier diff au format git diff complet
-            const diffLines: string[] = [];
-            for (const [filepath, hunks] of fileHunks) {
-                if (hunks.length > 0) {
-                    diffLines.push(`diff --git a/${filepath} b/${filepath}`);
-                    diffLines.push(`--- a/${filepath}`);
-                    diffLines.push(`+++ b/${filepath}`);
-                    
-                    for (const hunk of hunks) {
-                        diffLines.push(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@${hunk.header}`);
-                        diffLines.push(...hunk.lines);
+                    // Retirer le hash
+                    data[filepath] = data[filepath].filter(h => h !== hash);
+                    if (data[filepath].length === 0) {
+                        delete data[filepath];
                     }
                 }
             }
             
             await fs.promises.mkdir(path.dirname(storagePath), { recursive: true });
-            await fs.promises.writeFile(storagePath, diffLines.join('\n'), 'utf-8');
+            await fs.promises.writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
+            this.log(`Saved ${added ? 'added' : 'removed'} ${elements.length} hunks to ${storagePath}`);
         } catch (error) {
             this.log('Failed to save checked hunks', error as Error);
         }
@@ -615,7 +515,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (this.showCheckboxes) {
             if (element instanceof FileElement) {
                 // Compute file state from hunks: checked if all hunks are checked
-                checkboxState = await this.computeFileCheckboxState(element);
+                checkboxState = await this.computeFileCheckboxState(element.dstAbsPath);
             } else if (element instanceof FolderElement) {
                 // Compute folder state from children: checked if all children are checked
                 checkboxState = await this.computeFolderCheckboxState(element);
@@ -626,9 +526,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.showDiffDetails, this.asAbsolutePath);
     }
 
-    private async computeFileCheckboxState(file: FileElement): Promise<TreeItemCheckboxState> {
+    private async computeFileCheckboxState(dstAbsPath: string): Promise<TreeItemCheckboxState> {
         let hasHunks = false;
-        const hunks = await this.getDiffHunks(file);
+        const hunks = await this.getDiffHunks(dstAbsPath);
         for (const hunkElement of hunks) {
             if (!this.isHunkChecked(hunkElement)) {
                 return TreeItemCheckboxState.Unchecked;
@@ -648,8 +548,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (folderPath === folder.dstAbsPath || folderPath.startsWith(folder.dstAbsPath + path.sep)) {
                 for (const file of fileEntries) {
                     hasFiles = true;
-                    const fileState = await this.computeFileCheckboxState(new FileElement(file.srcAbsPath, file.dstAbsPath, 
-                        path.relative(this.treeRoot, file.dstAbsPath), file.status, file.isSubmodule));
+                    const fileState = await this.computeFileCheckboxState(file.dstAbsPath);
                     if (fileState !== TreeItemCheckboxState.Checked) {
                         return TreeItemCheckboxState.Unchecked;
                     }
@@ -689,122 +588,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
         } else if (element instanceof FileElement) {
             // Return diff hunks for this file
-            return await this.getDiffHunks(element);
+            return await this.getDiffHunks(element.dstAbsPath);
         }
         assert(false, "unsupported element type");
         return [];
     }
 
-    private async getDiffHunks(fileElement: FileElement): Promise<DiffHunkElement[]> {
-        if (fileElement.status === 'U' || fileElement.status === 'A' || fileElement.status === 'D') {
-            // Pour les fichiers non trackés, ajoutés ou supprimés, pas de hunks détaillés
-            return [];
-        }
-
-        try {
-            const dstRelPath = path.relative(this.repository!.root, fileElement.dstAbsPath);
-            // Utiliser git diff avec -U1 (1 ligne de contexte) et -w (ignorer whitespaces)
-            const result = await this.repository!.exec(['diff', '-U0', '-w', this.mergeBase, '--', dstRelPath]);
-            
-            const parsedHunks = this.parseDiffHunks(fileElement, result.stdout);
-            this.log(`Parsed ${parsedHunks.length} hunks for ${fileElement.dstAbsPath}`);
-            return parsedHunks;
-        } catch (e) {
-            this.log('Error getting diff hunks', e as Error);
-            return [];
-        }
-    }
-
-    private parseDiffHunks(fileElement: FileElement, diffOutput: string): DiffHunkElement[] {
-        const hunks: DiffHunkElement[] = [];
-        const lines = diffOutput.split('\n');
-        
-        // Regex pour extraire les informations du header de hunk: @@ -oldStart,oldLines +newStart,newLines @@
-        const hunkHeaderRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
-        
-        let currentHunk: { oldStart: number; oldLines: number; newStart: number; newLines: number; header: string; lines: string[] } | null = null;
-        let hunkCount = 0;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const match = hunkHeaderRegex.exec(line);
-            
-            if (match) {
-                hunkCount++;
-                this.log(`Found hunk header #${hunkCount}: ${line}`);
-                
-                // Sauvegarder le hunk précédent s'il existe
-                if (currentHunk) {
-                    const preview = currentHunk.lines.slice(0, 3).join('\n');
-                    // Trouver la première ligne avec + ou -
-                    const firstAddedLine = currentHunk.lines.find(l => l.startsWith('+') && !l.startsWith('+++'));
-                    const firstRemovedLine = currentHunk.lines.find(l => l.startsWith('-') && !l.startsWith('---'));
-                    let firstLine = '';
-                    if (firstAddedLine) {
-                        firstLine = firstAddedLine.substring(1).trim();
-                    } else if (firstRemovedLine) {
-                        firstLine = ' - ' + firstRemovedLine.substring(1).trim();
-                    }
-                    hunks.push(new DiffHunkElement(
-                        fileElement,
-                        currentHunk.oldStart,
-                        currentHunk.oldLines,
-                        currentHunk.newStart,
-                        currentHunk.newLines,
-                        currentHunk.header,
-                        preview,
-                        firstLine,
-                        currentHunk.lines
-                    ));
-                }
-                
-                // Commencer un nouveau hunk
-                const oldStart = parseInt(match[1]);
-                const oldLines = match[2] ? parseInt(match[2]) : 1;
-                const newStart = parseInt(match[3]);
-                const newLines = match[4] ? parseInt(match[4]) : 1;
-                const header = match[5].trim();
-                
-                currentHunk = {
-                    oldStart,
-                    oldLines,
-                    newStart,
-                    newLines,
-                    header,
-                    lines: []
-                };
-            } else if (currentHunk && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))) {
-                // Collecter les lignes du hunk
-                currentHunk.lines.push(line);
-            }
-        }
-        
-        // Ajouter le dernier hunk
-        if (currentHunk) {
-            const preview = currentHunk.lines.slice(0, 3).join('\n');
-            // Trouver la première ligne avec + ou -
-            const firstAddedLine = currentHunk.lines.find(l => l.startsWith('+') && !l.startsWith('+++'));
-            const firstRemovedLine = currentHunk.lines.find(l => l.startsWith('-') && !l.startsWith('---'));
-            let firstLine = '';
-            if (firstAddedLine) {
-                firstLine = firstAddedLine.substring(1).trim();
-            } else if (firstRemovedLine) {
-                firstLine = ' - ' + firstRemovedLine.substring(1).trim();
-            }
-            hunks.push(new DiffHunkElement(
-                fileElement,
-                currentHunk.oldStart,
-                currentHunk.oldLines,
-                currentHunk.newStart,
-                currentHunk.newLines,
-                currentHunk.header,
-                preview,
-                firstLine,
-                currentHunk.lines
-            ));
-        }
-        
-        return hunks;
+    private async getDiffHunks(dstAbsPath: string): Promise<DiffHunkElement[]> {
+        const hunks = this.hunksMap.get(dstAbsPath);
+        return hunks || [];
     }
 
     private async updateRefs(baseRef?: string): Promise<void>
@@ -971,10 +763,152 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
+        // Récupérer les hunks pour tous les fichiers en un seul appel git diff
+        const hunksMap = new Map<string, DiffHunkElement[]>();
+        try {
+            const result = await this.repository!.exec(['diff', `-U${DiffHunkElement.HUNK_CONTEXT_LINES}`, '-w', this.mergeBase]);
+
+            let gitDiff = result.stdout;
+
+            type HunkContext = {line:number, end:number, hash:crypto.Hash, preview:string, status:number};
+            do {
+                let currentHunk: HunkContext | null = null;
+                let closingHunk: HunkContext[] = [];
+                let currentFile: FileElement | null = null;
+                let fileSection = gitDiff.indexOf('+++ b/');
+                gitDiff = gitDiff.substring(fileSection + 6);
+                let fileEnd = gitDiff.indexOf('\n');
+                let filename = gitDiff.substring(0, fileEnd);
+                const entry = diff.find(e => e.dstAbsPath.endsWith(filename));
+                if(!entry) {
+                    continue;
+                }
+                currentFile = new FileElement(
+                    entry.srcAbsPath,
+                    entry.dstAbsPath,
+                    path.relative(this.treeRoot, entry.dstAbsPath),
+                    entry.status,
+                    entry.isSubmodule
+                )
+                if (!hunksMap.has(currentFile.dstAbsPath)) {
+                    hunksMap.set(currentFile.dstAbsPath, []);
+                }
+                let match = gitDiff.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
+                let ctxLines: [number, number][] = [];
+                let ctxLinesIdx = 0;
+                let line = parseInt(match![1]) - 1;
+                let startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                let inHunk = true;
+                while(inHunk) {
+                    const endOfLine = gitDiff.indexOf('\n', startOfLine) + 1;
+                    let mostRecent = false;
+                    switch (gitDiff[startOfLine]) {
+                        case ' ':
+                            if(currentHunk) {
+                                currentHunk.end = line;
+                                closingHunk.push(currentHunk);
+                                currentHunk = null;
+                            }
+                            mostRecent = true;
+                            break;
+                        case '+':
+                            mostRecent = true;
+                        case '-':
+                            if(currentHunk == null) {
+                                currentHunk = {
+                                    line,
+                                    end: line,
+                                    hash: crypto.createHash('sha256'),
+                                    preview: gitDiff.substring(startOfLine, endOfLine-1),
+                                    status: mostRecent ? 2 : 1
+                                };
+                                for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                                    const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                                    currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                }
+                            }
+                            if(mostRecent && (currentHunk.preview[0] === '-') || currentHunk.preview === '+') {
+                                currentHunk.preview = gitDiff.substring(startOfLine, endOfLine-1);
+                            }
+                            currentHunk.status |= mostRecent ? 2 : 1;
+                            currentHunk.hash.update(gitDiff.substring(startOfLine, endOfLine));
+                            break;
+                        case '@':
+                            gitDiff = gitDiff.substring(startOfLine);
+                            match = gitDiff.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
+                            ctxLines = [];
+                            ctxLinesIdx = 0;
+                            line = parseInt(match![1]) - 1;
+                            startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                            continue;
+                        default:
+                            inHunk = false;
+                            continue;
+                    }
+                    if(mostRecent) {
+                        startOfLine++;
+                        ctxLines[ctxLinesIdx] = [startOfLine, endOfLine];
+                        ctxLinesIdx = (ctxLinesIdx + 1) % DiffHunkElement.HUNK_CONTEXT_LINES
+                        line++;
+                        closingHunk.forEach(h => {
+                            if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
+                                for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                                    const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                                    h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                }
+                                const a:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
+                                const hunkElement = new DiffHunkElement(
+                                    currentFile!,
+                                    h.line + 1,
+                                    h.preview,
+                                    h.hash.digest('hex').substring(0, 16),
+                                    a[h.status]
+                                );
+                                hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
+                            }
+                        });
+                    }
+                    startOfLine = endOfLine;
+                }
+                gitDiff = gitDiff.substring(startOfLine);
+            } while(gitDiff);
+        } catch (e) {
+            this.log('Failed to retrieve diff hunks', e as Error);
+        }
+    
+        
+        // Comparer this.hunksMap avec hunksMap pour détecter les changements
+        let hunksHaveChanged = false;
+        if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
+            hunksHaveChanged = true;
+        } else {
+            // Comparer les clés et les valeurs
+            for (const [filePath, newHunks] of hunksMap.entries()) {
+                const oldHunks = this.hunksMap.get(filePath);
+                if (!oldHunks || oldHunks.length !== newHunks.length) {
+                    hunksHaveChanged = true;
+                    break;
+                }
+                // Comparer les hash des hunks
+                for (let i = 0; i < newHunks.length; i++) {
+                    if (oldHunks[i].hash !== newHunks[i].hash) {
+                        hunksHaveChanged = true;
+                        break;
+                    }
+                }
+                if (hunksHaveChanged) {
+                    break;
+                }
+            }
+        }
+        
+        this.hunksMap = hunksMap;
+        this.log(`Loaded ${hunksMap.size} files with hunks`);
+
         // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
         const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
         
-        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
+        if (fireChangeEvents && (treeHasChanged || hunksHaveChanged || needsRefreshForSorting)) {
             this.log('Refreshing tree')
             this._onDidChangeTreeData.fire();
         }
@@ -1921,12 +1855,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         return item;
     } else if (element instanceof DiffHunkElement) {
-        const item = new TreeItem(element.firstLine || element.header || element.label);
-        item.description = `Lines ${element.newStart}-${element.newStart + element.newLines - 1}`;
+        const item = new TreeItem(element.label);
+        item.description = `Line ${element.newStart}`;
         item.tooltip = element.preview;
         item.contextValue = 'diffHunk';
-        item.id = `${element.fileElement.dstAbsPath}:${element.newStart}`;
-        item.iconPath = new ThemeIcon('diff');
+        item.id = `${element.fileElement.dstAbsPath}:${element.newStart}:${element.hash}`;
+        item.iconPath = path.join(gitIconRoot, toIconName(element) + '.svg');
         if (checkboxState !== undefined) {
             item.checkboxState = checkboxState;
         }
@@ -1973,7 +1907,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     throw new Error('unsupported element type');
 }
 
-function toIconName(element: FileElement) {
+function toIconName(element: FileElement | DiffHunkElement): string {
     switch(element.status) {
         case 'U': return 'status-untracked';
         case 'A': return 'status-added';
