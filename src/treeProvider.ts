@@ -763,147 +763,159 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
-        // Récupérer les hunks pour tous les fichiers en un seul appel git diff
-        const hunksMap = new Map<string, DiffHunkElement[]>();
-        try {
-            const result = await this.repository!.exec(['diff', `-U${DiffHunkElement.HUNK_CONTEXT_LINES}`, '-w', this.mergeBase]);
-
-            let gitDiff = result.stdout;
-
-            type HunkContext = {line:number, end:number, hash:crypto.Hash, preview:string, status:number};
-            do {
-                let currentHunk: HunkContext | null = null;
-                let closingHunk: HunkContext[] = [];
-                let currentFile: FileElement | null = null;
-                let fileSection = gitDiff.indexOf('+++ b/');
-                gitDiff = gitDiff.substring(fileSection + 6);
-                let fileEnd = gitDiff.indexOf('\n');
-                let filename = gitDiff.substring(0, fileEnd);
-                const entry = diff.find(e => e.dstAbsPath.endsWith(filename));
-                if(!entry) {
-                    continue;
-                }
-                currentFile = new FileElement(
-                    entry.srcAbsPath,
-                    entry.dstAbsPath,
-                    path.relative(this.treeRoot, entry.dstAbsPath),
-                    entry.status,
-                    entry.isSubmodule
-                )
-                if (!hunksMap.has(currentFile.dstAbsPath)) {
-                    hunksMap.set(currentFile.dstAbsPath, []);
-                }
-                let match = gitDiff.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
-                let ctxLines: [number, number][] = [];
-                let ctxLinesIdx = 0;
-                let line = parseInt(match![1]) - 1;
-                let startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
-                let inHunk = true;
-                while(inHunk) {
-                    const endOfLine = gitDiff.indexOf('\n', startOfLine) + 1;
-                    let mostRecent = false;
-                    switch (gitDiff[startOfLine]) {
-                        case ' ':
-                            if(currentHunk) {
-                                currentHunk.end = line;
-                                closingHunk.push(currentHunk);
-                                currentHunk = null;
-                            }
-                            mostRecent = true;
-                            break;
-                        case '+':
-                            mostRecent = true;
-                        case '-':
-                            if(currentHunk == null) {
-                                currentHunk = {
-                                    line,
-                                    end: line,
-                                    hash: crypto.createHash('sha256'),
-                                    preview: gitDiff.substring(startOfLine, endOfLine-1),
-                                    status: mostRecent ? 2 : 1
-                                };
-                                for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
-                                    const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
-                                    currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
-                                }
-                            }
-                            if(mostRecent && (currentHunk.preview[0] === '-') || currentHunk.preview === '+') {
-                                currentHunk.preview = gitDiff.substring(startOfLine, endOfLine-1);
-                            }
-                            currentHunk.status |= mostRecent ? 2 : 1;
-                            currentHunk.hash.update(gitDiff.substring(startOfLine, endOfLine));
-                            break;
-                        case '@':
-                            gitDiff = gitDiff.substring(startOfLine);
-                            match = gitDiff.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
-                            ctxLines = [];
-                            ctxLinesIdx = 0;
-                            line = parseInt(match![1]) - 1;
-                            startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
-                            continue;
-                        default:
-                            inHunk = false;
-                            continue;
-                    }
-                    if(mostRecent) {
-                        startOfLine++;
-                        ctxLines[ctxLinesIdx] = [startOfLine, endOfLine];
-                        ctxLinesIdx = (ctxLinesIdx + 1) % DiffHunkElement.HUNK_CONTEXT_LINES
-                        line++;
-                        closingHunk.forEach(h => {
-                            if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
-                                for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
-                                    const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
-                                    h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
-                                }
-                                const a:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
-                                const hunkElement = new DiffHunkElement(
-                                    currentFile!,
-                                    h.line + 1,
-                                    h.preview,
-                                    h.hash.digest('hex').substring(0, 16),
-                                    a[h.status]
-                                );
-                                hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
-                            }
-                        });
-                    }
-                    startOfLine = endOfLine;
-                }
-                gitDiff = gitDiff.substring(startOfLine);
-            } while(gitDiff);
-        } catch (e) {
-            this.log('Failed to retrieve diff hunks', e as Error);
-        }
-    
-        
-        // Comparer this.hunksMap avec hunksMap pour détecter les changements
         let hunksHaveChanged = false;
-        if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
-            hunksHaveChanged = true;
-        } else {
-            // Comparer les clés et les valeurs
-            for (const [filePath, newHunks] of hunksMap.entries()) {
-                const oldHunks = this.hunksMap.get(filePath);
-                if (!oldHunks || oldHunks.length !== newHunks.length) {
-                    hunksHaveChanged = true;
-                    break;
+        if(this.showDiffDetails) {
+            const hunksMap = new Map<string, DiffHunkElement[]>();
+            try {
+                type HunkContext = {line:number, end:number, hash:crypto.Hash, preview:string, status:number};
+
+                let gitDiff = (await this.repository!.exec(['diff', `-U${DiffHunkElement.HUNK_CONTEXT_LINES}`, '-w', this.mergeBase])).stdout;
+
+                while(gitDiff) {
+                    // jump to next file diff
+                    gitDiff = gitDiff.substring(gitDiff.indexOf('+++ b/') + 6);
+                    const filename = gitDiff.substring(0, gitDiff.indexOf('\n'));
+                    const entry = diff.find(e => e.dstAbsPath.endsWith(filename));
+                    if(!entry) {
+                        continue;
+                    }
+                    const currentFile = new FileElement(
+                        entry.srcAbsPath,
+                        entry.dstAbsPath,
+                        path.relative(this.treeRoot, entry.dstAbsPath),
+                        entry.status,
+                        entry.isSubmodule
+                    )
+                    if (!hunksMap.has(currentFile.dstAbsPath)) {
+                        hunksMap.set(currentFile.dstAbsPath, []);
+                    }
+
+                    let ctxLines: [number, number][] = []; // circular buffer of line start/end positions for context lines, used to compute hunk hash
+                    let ctxLinesIdx = 0;
+                    let currentHunk: HunkContext | null = null; // current hunk being parsed, null if currently parsing unchanged lines between hunks
+                    let closingHunk: HunkContext[] = []; // hunks parsed waiting for after context
+                    let match = gitDiff.match(/@@ -\d+(,\d+)? \+(\d+)(,\d+)? @@/);
+                    let line = parseInt(match![2]) - 1;
+                    let startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                    let inHunk = true;
+
+                    function saveHunkCompleted(h: HunkContext) {
+                        if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
+                            for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                                const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                                h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                            }
+                            const status2char:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
+                            const hunkElement = new DiffHunkElement(
+                                currentFile,
+                                h.line + 1,
+                                h.preview.substring(1),
+                                h.hash.digest('hex').substring(0, 16),
+                                status2char[h.status]
+                            );
+                            hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
+                            return false;
+                        }
+                        return true;
+                    }
+
+                    while(inHunk) {
+                        const endOfLine = gitDiff.indexOf('\n', startOfLine) + 1;
+                        let mostRecent = false; // true if current line is context or addition
+                        switch (gitDiff[startOfLine]) {
+                            case ' ':
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    closingHunk.push(currentHunk);
+                                    currentHunk = null;
+                                }
+                                mostRecent = true;
+                                break;
+                            case '+':
+                                mostRecent = true;
+                            case '-':
+                                if(currentHunk == null) {
+                                    currentHunk = {
+                                        line,
+                                        end: line,
+                                        hash: crypto.createHash('sha1'),
+                                        preview: gitDiff.substring(startOfLine, endOfLine-1),
+                                        status: mostRecent ? 2 : 1,
+                                    };
+                                    for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                                        const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                                        currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                    }
+                                }
+                                if(mostRecent && (currentHunk.preview[0] === '-') || currentHunk.preview === '+') {
+                                    currentHunk.preview = gitDiff.substring(startOfLine, endOfLine-1);
+                                }
+                                currentHunk.status |= mostRecent ? 2 : 1;
+                                currentHunk.hash.update(gitDiff.substring(startOfLine, endOfLine));
+                                break;
+                            case '@':
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    saveHunkCompleted(currentHunk);
+                                }
+                                gitDiff = gitDiff.substring(startOfLine);
+                                match = gitDiff.match(/@@ -\d+(,\d+)? \+(\d+)(,\d+)? @@/);
+                                ctxLines = [];
+                                ctxLinesIdx = 0;
+                                currentHunk = null;
+                                closingHunk = [];
+                                line = parseInt(match![2]) - 1;
+                                startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                                continue; // same file, reset hunk vars and continue parsing
+                            default:
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    saveHunkCompleted(currentHunk);
+                                }
+                                inHunk = false;
+                                continue; // end of hunks for this file
+                        }
+                        if(mostRecent) {
+                            ctxLines[ctxLinesIdx] = [startOfLine + 1, endOfLine];
+                            ctxLinesIdx = (ctxLinesIdx + 1) % DiffHunkElement.HUNK_CONTEXT_LINES
+                            line++;
+                            closingHunk = closingHunk.filter(saveHunkCompleted);
+                        }
+                        startOfLine = endOfLine;
+                    }
+                    gitDiff = gitDiff.substring(startOfLine);
                 }
-                // Comparer les hash des hunks
-                for (let i = 0; i < newHunks.length; i++) {
-                    if (oldHunks[i].hash !== newHunks[i].hash) {
+            } catch (e) {
+                this.log('Failed to retrieve diff hunks', e as Error);
+            }
+            console.log('hunksMap', hunksMap.size, hunksMap);
+
+            if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
+                hunksHaveChanged = true;
+            } else {
+                // Comparer les clés et les valeurs
+                for (const [filePath, newHunks] of hunksMap.entries()) {
+                    const oldHunks = this.hunksMap.get(filePath);
+                    if (!oldHunks || oldHunks.length !== newHunks.length) {
                         hunksHaveChanged = true;
                         break;
                     }
-                }
-                if (hunksHaveChanged) {
-                    break;
+                    // Comparer les hash des hunks
+                    for (let i = 0; i < newHunks.length; i++) {
+                        if (oldHunks[i].hash !== newHunks[i].hash) {
+                            hunksHaveChanged = true;
+                            break;
+                        }
+                    }
+                    if (hunksHaveChanged) {
+                        break;
+                    }
                 }
             }
+            
+            this.hunksMap = hunksMap;
+            this.log(`Loaded ${hunksMap.size} files with hunks`);
         }
-        
-        this.hunksMap = hunksMap;
-        this.log(`Loaded ${hunksMap.size} files with hunks`);
 
         // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
         const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
