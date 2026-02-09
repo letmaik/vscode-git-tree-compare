@@ -896,7 +896,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
                             for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
                                 const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
-                                h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                if(ctxLine) {
+                                    h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                }
                             }
                             const status2char:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
                             const hunkElement = new DiffHunkElement(
@@ -937,7 +939,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                                     };
                                     for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
                                         const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
-                                        currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                        if(ctxLine) {
+                                            currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                        }
                                     }
                                 }
                                 if(mostRecent && (currentHunk.preview[0] === '-' || currentHunk.preview === '+')) {
