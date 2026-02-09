@@ -32,12 +32,6 @@ export function activate(context: ExtensionContext) {
         });
     });
 
-    commands.registerCommand(NAMESPACE + '.openChangesAtLine', node => {
-        runAfterInit(() => {
-            provider!.openChangesAtLine(node);
-        });
-    });
-
     commands.registerCommand(NAMESPACE + '.openFile', (node, nodes) => {
         runAfterInit(() => {
             provider!.openFile(nodes || [node]);

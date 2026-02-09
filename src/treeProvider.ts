@@ -5,7 +5,7 @@ import * as crypto from 'crypto'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
-         QuickPickItem, ProgressLocation, Memento, OutputChannel,
+         QuickPickItem, ProgressLocation, Memento, OutputChannel, Range,
          workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
@@ -1206,36 +1206,21 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return diffStatus;
     }
 
-    async openChanges(fileEntry?: FileElement) {
+    async openChanges(fileEntry?: FileElement | DiffHunkElement) {
+        const options: TextDocumentShowOptions = {preview: true};
+        if(fileEntry instanceof DiffHunkElement) {
+            options.selection = new Range(fileEntry.newStart - 1, 0, fileEntry.newStart - 1, 0);
+            options.preserveFocus = false;
+            fileEntry = fileEntry.fileElement;
+        }
         const diffStatus = this.getDiffStatus(fileEntry);
         if (!diffStatus) {
             return;
         }
-        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
+        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status, options);
     }
 
-    async openChangesAtLine(hunkElement: DiffHunkElement) {
-        const fileElement = hunkElement.fileElement;
-        await this.doOpenChanges(fileElement.srcAbsPath, fileElement.dstAbsPath, fileElement.status);
-        
-        // Attendre un peu que l'éditeur s'ouvre
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Naviguer vers la ligne dans l'éditeur actif
-        const editor = window.activeTextEditor;
-        if (editor) {
-            const line = hunkElement.newStart - 1; // Les lignes sont 0-indexées dans l'API
-            const position = new (await import('vscode')).Position(line, 0);
-            const range = new (await import('vscode')).Range(position, position);
-            const selection = new (await import('vscode')).Selection(position, position);
-            const TextEditorRevealType = (await import('vscode')).TextEditorRevealType;
-            
-            editor.selection = selection;
-            editor.revealRange(range, TextEditorRevealType.InCenter);
-        }
-    }
-
-    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, options: TextDocumentShowOptions) {
         const right = Uri.file(dstAbsPath);
         const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
 
@@ -1246,9 +1231,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return commands.executeCommand('vscode.open', left);
         }
 
-        const options: TextDocumentShowOptions = {
-            preview: preview
-        };
         const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
@@ -1257,7 +1239,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
         for (const file of this.iterFiles(withinFolder)) {
-            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, false);
+            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, { preview: false });
         }
     }
 
@@ -1876,9 +1858,8 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         if (checkboxState !== undefined) {
             item.checkboxState = checkboxState;
         }
-        // Commande pour ouvrir le diff à la ligne spécifique
         item.command = {
-            command: NAMESPACE + '.openChangesAtLine',
+            command: NAMESPACE + '.openChanges',
             arguments: [element],
             title: ''
         };
