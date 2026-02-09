@@ -1,3 +1,7 @@
+## 1.20.0
+
+* Add file filter functionality to tree view
+
 ## 1.19.0
 
 * Add GitHub PR comparison command [#130](https://github.com/letmaik/vscode-git-tree-compare/pull/130)
