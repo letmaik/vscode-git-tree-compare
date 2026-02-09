@@ -1,8 +1,8 @@
 import * as assert from 'assert'
 import * as path from 'path'
 import * as fs from 'fs'
-import * as crypto from 'crypto'
 
+import { Hash, createHash } from 'crypto'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel, Range,
@@ -31,6 +31,11 @@ const STATUS_SORT_ORDER: { [key: string]: number } = {
     'U': 5, // Untracked
     'T': 6  // Type change
 };
+
+interface CheckboxStateInfo {
+    state: TreeItemCheckboxState;
+    timestamp: number; // When the checkbox was checked
+}
 
 class FileElement implements IDiffStatus {
     modificationDate?: Date;
@@ -135,6 +140,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private showCollapsed: boolean;
     private compactFolders: boolean;
     private showCheckboxes: boolean;
+    private resetCheckboxOnFileChange: boolean;
     private showDiffDetails: boolean;
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
@@ -169,6 +175,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // UI state
     private treeView: TreeView<Element>;
     private isPaused: boolean;
+    private checkboxStates: Map<string, CheckboxStateInfo> = new Map<string, CheckboxStateInfo>();
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -273,6 +280,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             window.showErrorMessage(`${msg}: ${e.message}`);
             return;
         }
+        this.checkboxStates.clear();
         this._onDidChangeTreeData.fire();
     }
 
@@ -339,18 +347,30 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async handleChangeCheckboxState(e: TreeCheckboxChangeEvent<Element>) {
+        if(!this.showDiffDetails) {
+            for (let [element, state] of e.items) {
+                if (element instanceof FileElement || element instanceof FolderElement) {
+                    this.checkboxStates.set(element.dstAbsPath, {
+                        state: state,
+                        timestamp: Date.now()
+                    });
+                }
+            }
+            return;
+        }
         const diff: DiffHunkElement[][] = [[],[]];
         for (const [element, state] of e.items) {
             if (element instanceof FileElement) {
                 const childHunkPresent = e.items.some(([nextElement, _]) => nextElement instanceof DiffHunkElement && nextElement.fileElement.dstAbsPath === element.dstAbsPath);
                 if (!childHunkPresent) {
-                    // process only if hunk of these files are not already included in event
+                    // process only if no hunk from this file are included in event
                     const hunks = await this.getDiffHunks(element.dstAbsPath);
                     diff[state].push(...hunks);
                 }
             } else if (element instanceof FolderElement) {
                 const childFilePresent = e.items.some(([nextElement, _]) => nextElement instanceof FileElement && nextElement.dstAbsPath.includes(element.dstAbsPath));
                 if (!childFilePresent) {
+                    // process only if no file from this folder are included in event
                     const files = element.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
                     for (const [folderPath, fileEntries] of files.entries()) {
                         if (folderPath === element.dstAbsPath || folderPath.startsWith(element.dstAbsPath + path.sep)) {
@@ -377,14 +397,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         try {
             const repoName = path.basename(this.repository.root);
             const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
-            
+
             if (!fs.existsSync(storagePath)) {
                 return false;
             }
-            
-            const content = fs.readFileSync(storagePath, 'utf-8');
-            const data = JSON.parse(content);
-            
+
+            const data = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
+
             const targetFile = element.fileElement.dstAbsPath;
             const targetHash = element.hash;
             
@@ -472,6 +491,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.showCollapsed = config.get<boolean>('collapsed', false);
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
+        this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
         this.showDiffDetails = config.get<boolean>('showDiffDetails', true);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
@@ -527,6 +547,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async computeFileCheckboxState(dstAbsPath: string): Promise<TreeItemCheckboxState> {
+        if(!this.showDiffDetails) {
+            const stateInfo = this.checkboxStates.get(dstAbsPath);
+            return stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
+        }
         let hasHunks = false;
         const hunks = await this.getDiffHunks(dstAbsPath);
         for (const hunkElement of hunks) {
@@ -539,7 +563,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async computeFolderCheckboxState(folder: FolderElement): Promise<TreeItemCheckboxState> {
-        // Derive from files: folder is checked only if ALL files under it are checked
+        if(!this.showDiffDetails) {
+            // Check if user explicitly set state on this folder
+            const explicitState = this.checkboxStates.get(folder.dstAbsPath);
+            if (explicitState) {
+                return explicitState.state;
+            }
+        }
+        // Otherwise derive from files: folder is checked only if ALL files under it are checked
         const files = folder.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
         let hasFiles = false;
         
@@ -654,6 +685,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             if (this.headName !== headName) {
                 this.log(`HEAD ref updated: ${this.headName} -> ${headName}`);
+                this.checkboxStates.clear();
             }
             if (this.headCommit !== headCommit) {
                 this.log(`HEAD ref commit updated: ${this.headCommit} -> ${headCommit}`);
@@ -689,6 +721,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
         const newFilePaths = new Set<string>();
+        // Collect files that need mtime checking for async batch processing
+        const filesToCheckMtime: Array<{filePath: string, stateInfo: CheckboxStateInfo}> = [];
         
         for (const entry of diff) {
             const folder = path.dirname(entry.dstAbsPath);
@@ -715,6 +749,54 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             // Track new file paths
             newFilePaths.add(entry.dstAbsPath);
+            
+            // Collect checked files for mtime checking to reset if modified after being checked
+            if (this.resetCheckboxOnFileChange) {
+                const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
+                if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
+                    filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
+                }
+            }
+        }
+
+        // Check file modification times asynchronously in parallel
+        if (this.resetCheckboxOnFileChange && filesToCheckMtime.length > 0) {
+            const statPromises = filesToCheckMtime.map(async ({filePath, stateInfo}) => {
+                try {
+                    const stats = await fs.promises.stat(filePath);
+                    const fileMtime = stats.mtimeMs;
+                    
+                    // If file was modified after checkbox was checked, reset it
+                    if (fileMtime > stateInfo.timestamp) {
+                        return filePath;
+                    }
+                } catch (error: unknown) {
+                    // File might be deleted or inaccessible - this is expected in some cases
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    this.log(`Could not stat file for checkbox reset check: ${filePath}: ${errorMessage}`);
+                }
+                return null;
+            });
+            
+            const pathsToReset = await Promise.all(statPromises);
+            const actualPathsToReset = pathsToReset.filter((filePath): filePath is string => filePath !== null);
+            actualPathsToReset.forEach(filePath => this.checkboxStates.delete(filePath));
+            
+            // Fire tree refresh to update checkbox UI
+            if (actualPathsToReset.length > 0) {
+                this._onDidChangeTreeData.fire();
+            }
+        }
+
+        // Clear checkbox state for files that no longer exist in the diff
+        const pathsToDelete: string[] = [];
+        for (const [filePath] of this.checkboxStates) {
+            if (!newFilePaths.has(filePath)) {
+                pathsToDelete.push(filePath);
+            }
+        }
+        for (const filePath of pathsToDelete) {
+            this.checkboxStates.delete(filePath);
         }
 
         let treeHasChanged = false;
@@ -767,7 +849,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if(this.showDiffDetails) {
             const hunksMap = new Map<string, DiffHunkElement[]>();
             try {
-                type HunkContext = {line:number, end:number, hash:crypto.Hash, preview:string, status:number};
+                type HunkContext = {line:number, end:number, hash:Hash, preview:string, status:number};
 
                 let gitDiff = (await this.repository!.exec(['diff', `-U${DiffHunkElement.HUNK_CONTEXT_LINES}`, '-w', this.mergeBase])).stdout;
 
@@ -838,7 +920,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                                     currentHunk = {
                                         line,
                                         end: line,
-                                        hash: crypto.createHash('sha1'),
+                                        hash: createHash('sha1'),
                                         preview: gitDiff.substring(startOfLine, endOfLine-1),
                                         status: mostRecent ? 2 : 1,
                                     };
