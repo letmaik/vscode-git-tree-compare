@@ -138,12 +138,12 @@
             },
             {
                 "command": "gitTreeCompare.showDiffDetails",
-                "title": "Show diff details",
+                "title": "Show hunks",
                 "category": "Git Tree Compare"
             },
             {
                 "command": "gitTreeCompare.hideDiffDetails",
-                "title": "Hide diff details",
+                "title": "Hide hunks",
                 "category": "Git Tree Compare"
             },
             {
@@ -296,32 +296,32 @@
                 {
                     "command": "gitTreeCompare.switchToFullDiff",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == merge",
-                    "group": "3_options"
+                    "group": "3_options@3"
                 },
                 {
                     "command": "gitTreeCompare.switchToMergeDiff",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.diffMode == full",
-                    "group": "3_options"
+                    "group": "3_options@3"
                 },
                 {
                     "command": "gitTreeCompare.showCheckboxes",
                     "when": "view == gitTreeCompare && !config.gitTreeCompare.showCheckboxes",
-                    "group": "3_options"
+                    "group": "3_options@1"
                 },
                 {
                     "command": "gitTreeCompare.hideCheckboxes",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes",
-                    "group": "3_options"
+                    "group": "3_options@1"
                 },
                 {
                     "command": "gitTreeCompare.showDiffDetails",
                     "when": "view == gitTreeCompare && !config.gitTreeCompare.showDiffDetails",
-                    "group": "3_options"
+                    "group": "3_options@2"
                 },
                 {
                     "command": "gitTreeCompare.hideDiffDetails",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.showDiffDetails",
-                    "group": "3_options"
+                    "group": "3_options@2"
                 },
                 {
                     "command": "gitTreeCompare.viewAsList",
