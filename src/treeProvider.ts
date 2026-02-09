@@ -420,15 +420,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         try {
             const repoName = path.basename(this.repository.root);
             const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
-            
-            // Lire le fichier existant
+
             let data: { [filepath: string]: string[] } = {};
             if (fs.existsSync(storagePath)) {
                 const content = await fs.promises.readFile(storagePath, 'utf-8');
                 data = JSON.parse(content);
             }
-            
-            // Mettre à jour les hunks
+
             for (const element of elements) {
                 const filepath = element.fileElement.dstAbsPath;
                 const hash = element.hash;
@@ -436,21 +434,19 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 if (!data[filepath]) {
                     data[filepath] = [];
                 }
-                
+
                 if (added) {
-                    // Ajouter le hash s'il n'existe pas déjà
                     if (!data[filepath].includes(hash)) {
                         data[filepath].push(hash);
                     }
                 } else {
-                    // Retirer le hash
                     data[filepath] = data[filepath].filter(h => h !== hash);
                     if (data[filepath].length === 0) {
                         delete data[filepath];
                     }
                 }
             }
-            
+
             await fs.promises.mkdir(path.dirname(storagePath), { recursive: true });
             await fs.promises.writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
             this.log(`Saved ${added ? 'added' : 'removed'} ${elements.length} hunks to ${storagePath}`);
@@ -974,14 +970,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
                 hunksHaveChanged = true;
             } else {
-                // Comparer les clés et les valeurs
                 for (const [filePath, newHunks] of hunksMap.entries()) {
                     const oldHunks = this.hunksMap.get(filePath);
                     if (!oldHunks || oldHunks.length !== newHunks.length) {
                         hunksHaveChanged = true;
                         break;
                     }
-                    // Comparer les hash des hunks
                     for (let i = 0; i < newHunks.length; i++) {
                         if (oldHunks[i].hash !== newHunks[i].hash) {
                             hunksHaveChanged = true;
