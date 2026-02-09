@@ -929,7 +929,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                                         currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
                                     }
                                 }
-                                if(mostRecent && (currentHunk.preview[0] === '-') || currentHunk.preview === '+') {
+                                if(mostRecent && (currentHunk.preview[0] === '-' || currentHunk.preview === '+')) {
                                     currentHunk.preview = gitDiff.substring(startOfLine, endOfLine-1);
                                 }
                                 currentHunk.status |= mostRecent ? 2 : 1;
@@ -970,7 +970,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             } catch (e) {
                 this.log('Failed to retrieve diff hunks', e as Error);
             }
-            console.log('hunksMap', hunksMap.size, hunksMap);
 
             if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
                 hunksHaveChanged = true;
