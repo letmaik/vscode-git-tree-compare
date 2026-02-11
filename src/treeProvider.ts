@@ -62,7 +62,7 @@ class DiffHunkElement {
         public status: 'A' | 'M' | 'D') {}
 
     get label(): string {
-        return this.preview || `Line ${this.newStart}`;
+        return this.preview;
     }
 }
 
@@ -464,7 +464,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             await fs.promises.mkdir(path.dirname(storagePath), { recursive: true });
             await fs.promises.writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
-            this.log(`Saved ${added ? 'added' : 'removed'} ${elements.length} hunks to ${storagePath}`);
+            this.log(`Saved ${added ? '+' : '-'}${elements.length} hunks to ${storagePath}`);
         } catch (error) {
             this.log('Failed to save checked hunks', error as Error);
         }
@@ -892,23 +892,27 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     let startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
                     let inHunk = true;
 
-                    function saveHunkCompleted(h: HunkContext) {
-                        if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
-                            for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
-                                const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
-                                if(ctxLine) {
-                                    h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
-                                }
+                    function saveHunk(h: HunkContext) {
+                        const ctxNb = line - h.end;
+                        for(let i=DiffHunkElement.HUNK_CONTEXT_LINES - ctxNb; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                            const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                            if(ctxLine) {
+                                h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
                             }
-                            const status2char:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
-                            const hunkElement = new DiffHunkElement(
-                                currentFile,
-                                h.line + 1,
-                                h.preview.substring(1),
-                                h.hash.digest('hex').substring(0, 16),
-                                status2char[h.status]
-                            );
-                            hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
+                        }
+                        const status2char:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
+                        const hunkElement = new DiffHunkElement(
+                            currentFile,
+                            h.line + 1,
+                            h.preview.substring(1),
+                            h.hash.digest('hex').substring(0, 16),
+                            status2char[h.status]
+                        );
+                        hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
+                    }
+                    function saveHunkIfComplete(h: HunkContext) {
+                        if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
+                            saveHunk(h);
                             return false;
                         }
                         return true;
@@ -953,8 +957,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                             case '@':
                                 if(currentHunk) {
                                     currentHunk.end = line;
-                                    saveHunkCompleted(currentHunk);
+                                    saveHunk(currentHunk);
                                 }
+                                closingHunk.forEach(saveHunk);
                                 gitDiff = gitDiff.substring(startOfLine);
                                 match = gitDiff.match(/@@ -\d+(,\d+)? \+(\d+)(,\d+)? @@/);
                                 ctxLines = [];
@@ -967,8 +972,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                             default:
                                 if(currentHunk) {
                                     currentHunk.end = line;
-                                    saveHunkCompleted(currentHunk);
+                                    saveHunk(currentHunk);
                                 }
+                                closingHunk.forEach(saveHunk);
                                 inHunk = false;
                                 continue; // end of hunks for this file
                         }
@@ -976,7 +982,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                             ctxLines[ctxLinesIdx] = [startOfLine + 1, endOfLine];
                             ctxLinesIdx = (ctxLinesIdx + 1) % DiffHunkElement.HUNK_CONTEXT_LINES
                             line++;
-                            closingHunk = closingHunk.filter(saveHunkCompleted);
+                            closingHunk = closingHunk.filter(saveHunkIfComplete);
                         }
                         startOfLine = endOfLine;
                     }
@@ -1008,7 +1014,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
             
             this.hunksMap = hunksMap;
-            this.log(`Loaded ${hunksMap.size} files with hunks`);
+            const totalHunks = Array.from(hunksMap.values()).reduce((sum, hunks) => sum + hunks.length, 0);
+            this.log(`Loaded ${totalHunks} hunks in ${hunksMap.size} files`);
         }
 
         // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
