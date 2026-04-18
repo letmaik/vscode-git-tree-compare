@@ -13,6 +13,7 @@ import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
+import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
@@ -20,6 +21,8 @@ import { Octokit } from '@octokit/rest';
 
 
 type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+
+const MAX_DIFF_ENTRIES = 10000;
 
 const STATUS_SORT_ORDER: { [key: string]: number } = {
     'M': 0, // Modified
@@ -497,7 +500,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         } else if (element instanceof FolderElement) {
             return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
         }
-        assert(false, "unsupported element type");
+        assert.fail("unsupported element type");
         return [];
     }
 
@@ -547,12 +550,28 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             let mergeBase = baseRef;
             if (!this.fullDiff && baseRef != HEAD.name) {
                 // determine merge base to create more sensible/compact diff
+                let mergeBaseResult: string | undefined;
                 try {
-                    mergeBase = await this.repository!.getMergeBase(HEADref, baseRef);
+                    mergeBaseResult = await this.repository!.getMergeBase(HEADref, baseRef);
                 } catch (e) {
                     // sometimes the merge base cannot be determined
                     // this can be the case with shallow clones but may have other reasons
                 }
+                if (!mergeBaseResult) {
+                    const gitApiRepo = this.gitApi.getRepository(Uri.file(this.repository!.root));
+                    if (gitApiRepo) {
+                        mergeBaseResult = await tryDeepenForMergeBase(
+                            this.repository!, gitApiRepo, HEADref, HEAD.name, baseRef,
+                            msg => this.log(msg));
+                    }
+                }
+                if (!mergeBaseResult) {
+                    throw new Error(
+                        `No merge base could be found between "${HEADref}" and "${baseRef}". ` +
+                        `This can happen with shallow clones that don't have enough depth. ` +
+                        `Try fetching more history, or switch the diff mode to "full".`);
+                }
+                mergeBase = mergeBaseResult;
             }
             if (this.headName !== headName) {
                 this.log(`HEAD ref updated: ${this.headName} -> ${headName}`);
@@ -590,6 +609,18 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
+
+        if (diff.length > MAX_DIFF_ENTRIES) {
+            const msg = `Too many changes to display (${diff.length}, limit is ${MAX_DIFF_ENTRIES}). Choose a closer base ref to reduce the number of changes.`;
+            this.log(msg);
+            window.showErrorMessage(msg);
+            this.filesInsideTreeRoot = new Map();
+            this.filesOutsideTreeRoot = new Map();
+            if (fireChangeEvents) {
+                this._onDidChangeTreeData.fire();
+            }
+            return;
+        }
 
         const newFilePaths = new Set<string>();
         // Collect files that need mtime checking for async batch processing
@@ -839,8 +870,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 (!oldRefreshIndex && this.refreshIndex) ||
                 oldOmitUntrackedFiles != this.omitUntrackedFiles ||
                 oldOmitUnstagedChanges != this.omitUnstagedChanges) {
-                await this.updateRefs(this.baseRef);
-                await this.updateDiff(false);
+                try {
+                    await this.updateRefs(this.baseRef);
+                    await this.updateDiff(false);
+                } catch (e: any) {
+                    let msg = 'Updating the git tree failed';
+                    this.log(msg, e);
+                    window.showErrorMessage(`${msg}: ${e.message}`);
+                    // clear the tree as it would be confusing to display stale data under the new settings
+                    this.filesInsideTreeRoot = new Map();
+                    this.filesOutsideTreeRoot = new Map();
+                }
             }
             this._onDidChangeTreeData.fire();
         }

@@ -1,6 +1,8 @@
 ## 1.20.0
 
 * Add file filter functionality to tree view
+* Automatically offer to fetch more history when merge base cannot be found in shallow clones
+* Limit displayed diff entries to 10,000 to avoid performance issues
 
 ## 1.19.0
 

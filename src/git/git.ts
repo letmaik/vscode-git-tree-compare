@@ -531,7 +531,13 @@ export class Git {
 			child.stdin!.end(options.input, 'utf8');
 		}
 
+		const startTime = Date.now();
 		const bufferResult = await exec(child, options.cancellationToken);
+		const elapsedMs = Date.now() - startTime;
+
+		if (options.log !== false) {
+			this.log(`  [${elapsedMs}ms]\n`);
+		}
 
 		if (options.log !== false && bufferResult.stderr.length > 0) {
 			this.log(`${bufferResult.stderr}\n`);
