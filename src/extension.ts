@@ -88,6 +88,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.hideCheckboxes', () => {
         runAfterInit(() => provider!.hideCheckboxes(true));
     });
+    commands.registerCommand(NAMESPACE + '.showDiffDetails', () => {
+        runAfterInit(() => provider!.hideDiffDetails(false));
+    });
+    commands.registerCommand(NAMESPACE + '.hideDiffDetails', () => {
+        runAfterInit(() => provider!.hideDiffDetails(true));
+    });
     commands.registerCommand(NAMESPACE + '.viewAsList', () => {
         runAfterInit(() => provider!.viewAsTree(false));
     });
@@ -135,7 +141,8 @@ export function activate(context: ExtensionContext) {
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
 
-        provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
+        const storageUri = context.storageUri || context.globalStorageUri;
+        provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath, storageUri);
 
         const treeView = window.createTreeView(
             NAMESPACE,

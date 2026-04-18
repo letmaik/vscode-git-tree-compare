@@ -2,9 +2,10 @@ import * as assert from 'assert'
 import * as path from 'path'
 import * as fs from 'fs'
 
+import { Hash, createHash } from 'crypto'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
-         QuickPickItem, ProgressLocation, Memento, OutputChannel,
+         QuickPickItem, ProgressLocation, Memento, OutputChannel, Range,
          workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
@@ -54,6 +55,20 @@ class FileElement implements IDiffStatus {
     }
 }
 
+class DiffHunkElement {
+    static readonly HUNK_CONTEXT_LINES = 5;
+    constructor(
+        public fileElement: FileElement,
+        public newStart: number,
+        public preview: string,
+        public hash: string,
+        public status: 'A' | 'M' | 'D') {}
+
+    get label(): string {
+        return this.preview;
+    }
+}
+
 class FolderElement {
     constructor(
         public label: string,
@@ -71,7 +86,7 @@ class RefElement {
     constructor(public repositoryRoot: string, public refName: string, public hasChildren: boolean) {}
 }
 
-export type Element = FileElement | FolderElement | RepoRootElement | RefElement
+export type Element = FileElement | FolderElement | RepoRootElement | RefElement | DiffHunkElement
 type FileSystemElement = FileElement | FolderElement
 
 class ChangeBaseRefItem implements QuickPickItem {
@@ -129,6 +144,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private compactFolders: boolean;
     private showCheckboxes: boolean;
     private resetCheckboxOnFileChange: boolean;
+    private showDiffDetails: boolean;
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
     private sortOrder: SortOrder;
@@ -155,6 +171,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     // Diff results
     private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
     private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
+    private hunksMap: Map<string, DiffHunkElement[]>;
 
     // UI parameters, derived
     private treeRoot: FolderAbsPath;
@@ -168,7 +185,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private readonly disposables: Disposable[] = [];
 
     constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
-                private readonly asAbsolutePath: (relPath: string) => string) {
+                private readonly asAbsolutePath: (relPath: string) => string, private readonly storageUri: Uri) {
         this.readConfig();
     }
 
@@ -348,13 +365,111 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async handleChangeCheckboxState(e: TreeCheckboxChangeEvent<Element>) {
-        for (let [element, state] of e.items) {
-            if (element instanceof FileElement || element instanceof FolderElement) {
-                this.checkboxStates.set(element.dstAbsPath, {
-                    state: state,
-                    timestamp: Date.now()
-                });
+        if(!this.showDiffDetails) {
+            for (let [element, state] of e.items) {
+                if (element instanceof FileElement || element instanceof FolderElement) {
+                    this.checkboxStates.set(element.dstAbsPath, {
+                        state: state,
+                        timestamp: Date.now()
+                    });
+                }
             }
+            return;
+        }
+        const diff: DiffHunkElement[][] = [[],[]];
+        for (const [element, state] of e.items) {
+            if (element instanceof FileElement) {
+                const childHunkPresent = e.items.some(([nextElement, _]) => nextElement instanceof DiffHunkElement && nextElement.fileElement.dstAbsPath === element.dstAbsPath);
+                if (!childHunkPresent) {
+                    // process only if no hunk from this file are included in event
+                    const hunks = await this.getDiffHunks(element.dstAbsPath);
+                    diff[state].push(...hunks);
+                }
+            } else if (element instanceof FolderElement) {
+                const childFilePresent = e.items.some(([nextElement, _]) => nextElement instanceof FileElement && nextElement.dstAbsPath.includes(element.dstAbsPath));
+                if (!childFilePresent) {
+                    // process only if no file from this folder are included in event
+                    const files = element.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
+                    for (const [folderPath, fileEntries] of files.entries()) {
+                        if (folderPath === element.dstAbsPath || folderPath.startsWith(element.dstAbsPath + path.sep)) {
+                            for (const file of fileEntries) {
+                                const hunks = await this.getDiffHunks(file.dstAbsPath);
+                                diff[state].push(...hunks);
+                            }
+                        }
+                    }
+                }
+            } else if (element instanceof DiffHunkElement) {
+                diff[state].push(element);
+            }
+        }
+        
+        await this.saveCheckedHunks(diff[0], false);
+        await this.saveCheckedHunks(diff[1], true);
+    }
+
+    private isHunkChecked(element: DiffHunkElement): boolean {
+        if (!this.storageUri || !this.repository) {
+            return false;
+        }
+        try {
+            const repoName = path.basename(this.repository.root);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
+
+            if (!fs.existsSync(storagePath)) {
+                return false;
+            }
+
+            const data = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
+
+            const targetFile = element.fileElement.dstAbsPath;
+            const targetHash = element.hash;
+            
+            return data[targetFile] && data[targetFile].includes(targetHash);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    private async saveCheckedHunks(elements: DiffHunkElement[], added: boolean): Promise<void> {
+        if (!this.storageUri || !this.repository || elements.length === 0) {
+            return;
+        }
+        try {
+            const repoName = path.basename(this.repository.root);
+            const storagePath = path.join(this.storageUri.fsPath, `checked-hunks-${repoName}-${this.mergeBase}.json`);
+
+            let data: { [filepath: string]: string[] } = {};
+            if (fs.existsSync(storagePath)) {
+                const content = await fs.promises.readFile(storagePath, 'utf-8');
+                data = JSON.parse(content);
+            }
+
+            for (const element of elements) {
+                const filepath = element.fileElement.dstAbsPath;
+                const hash = element.hash;
+                
+                if (!data[filepath]) {
+                    data[filepath] = [];
+                }
+
+                if (added) {
+                    if (!data[filepath].includes(hash)) {
+                        data[filepath].push(hash);
+                    }
+                } else {
+                    data[filepath] = data[filepath].filter(h => h !== hash);
+                    if (data[filepath].length === 0) {
+                        delete data[filepath];
+                    }
+                }
+            }
+
+            await fs.promises.mkdir(path.dirname(storagePath), { recursive: true });
+            await fs.promises.writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
+            this.log(`Saved ${added ? '+' : '-'}${elements.length} hunks to ${storagePath}`);
+        } catch (error) {
+            this.log('Failed to save checked hunks', error as Error);
         }
     }
 
@@ -391,6 +506,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.compactFolders = config.get<boolean>('compactFolders', false);
         this.showCheckboxes = config.get<boolean>('showCheckboxes', false);
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
+        this.showDiffDetails = config.get<boolean>('showDiffDetails', true);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
@@ -428,48 +544,64 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.globalState.update('baseRef_' + this.repoRoot, baseRef);
     }
 
-    getTreeItem(element: Element): TreeItem {
+    async getTreeItem(element: Element): Promise<TreeItem> {
         let checkboxState: TreeItemCheckboxState | undefined;
         if (this.showCheckboxes) {
             if (element instanceof FileElement) {
-                const stateInfo = this.checkboxStates.get(element.dstAbsPath);
-                checkboxState = stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
+                // Compute file state from hunks: checked if all hunks are checked
+                checkboxState = await this.computeFileCheckboxState(element.dstAbsPath);
             } else if (element instanceof FolderElement) {
                 // Compute folder state from children: checked if all children are checked
-                checkboxState = this.computeFolderCheckboxState(element);
+                checkboxState = await this.computeFolderCheckboxState(element);
+            } else if (element instanceof DiffHunkElement) {
+                checkboxState = this.isHunkChecked(element) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
             }
         }
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.showDiffDetails, this.asAbsolutePath);
     }
 
-    private computeFolderCheckboxState(folder: FolderElement): TreeItemCheckboxState {
-        // Check if user explicitly set state on this folder
-        const explicitState = this.checkboxStates.get(folder.dstAbsPath);
-        if (explicitState) {
-            return explicitState.state;
+    private async computeFileCheckboxState(dstAbsPath: string): Promise<TreeItemCheckboxState> {
+        if(!this.showDiffDetails) {
+            const stateInfo = this.checkboxStates.get(dstAbsPath);
+            return stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
         }
-        
+        let hasHunks = false;
+        const hunks = await this.getDiffHunks(dstAbsPath);
+        for (const hunkElement of hunks) {
+            if (!this.isHunkChecked(hunkElement)) {
+                return TreeItemCheckboxState.Unchecked;
+            }
+            hasHunks = true;
+        }
+        return hasHunks ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
+    }
+
+    private async computeFolderCheckboxState(folder: FolderElement): Promise<TreeItemCheckboxState> {
+        if(!this.showDiffDetails) {
+            // Check if user explicitly set state on this folder
+            const explicitState = this.checkboxStates.get(folder.dstAbsPath);
+            if (explicitState) {
+                return explicitState.state;
+            }
+        }
         // Otherwise derive from files: folder is checked only if ALL files under it are checked
         const files = folder.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
         let hasFiles = false;
-        let allChecked = true;
         
         for (const [folderPath, fileEntries] of files.entries()) {
             // Check if this folder is under the target folder
             if (folderPath === folder.dstAbsPath || folderPath.startsWith(folder.dstAbsPath + path.sep)) {
                 for (const file of fileEntries) {
                     hasFiles = true;
-                    const stateInfo = this.checkboxStates.get(file.dstAbsPath);
-                    if (!stateInfo || stateInfo.state !== TreeItemCheckboxState.Checked) {
-                        allChecked = false;
-                        break;
+                    const fileState = await this.computeFileCheckboxState(file.dstAbsPath);
+                    if (fileState !== TreeItemCheckboxState.Checked) {
+                        return TreeItemCheckboxState.Unchecked;
                     }
                 }
-                if (!allChecked) break;
             }
         }
         
-        return (hasFiles && allChecked) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
+        return hasFiles ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
@@ -499,9 +631,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
         } else if (element instanceof FolderElement) {
             return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
+        } else if (element instanceof FileElement) {
+            // Return diff hunks for this file
+            return await this.getDiffHunks(element.dstAbsPath);
         }
         assert.fail("unsupported element type");
         return [];
+    }
+
+    private async getDiffHunks(dstAbsPath: string): Promise<DiffHunkElement[]> {
+        const hunks = this.hunksMap.get(dstAbsPath);
+        return hunks || [];
     }
 
     private async updateRefs(baseRef?: string): Promise<void>
@@ -747,10 +887,172 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.filesInsideTreeRoot = filesInsideTreeRoot;
         this.filesOutsideTreeRoot = filesOutsideTreeRoot;
 
+        let hunksHaveChanged = false;
+        if(this.showDiffDetails) {
+            const hunksMap = new Map<string, DiffHunkElement[]>();
+            try {
+                type HunkContext = {line:number, end:number, hash:Hash, preview:string, status:number};
+
+                let gitDiff = (await this.repository!.exec(['diff', `-U${DiffHunkElement.HUNK_CONTEXT_LINES}`, '-w', this.mergeBase])).stdout;
+
+                while(gitDiff) {
+                    // jump to next file diff
+                    gitDiff = gitDiff.substring(gitDiff.indexOf('+++ b/') + 6);
+                    const filename = gitDiff.substring(0, gitDiff.indexOf('\n'));
+                    const entry = diff.find(e => e.dstAbsPath.endsWith(filename));
+                    if(!entry) {
+                        continue;
+                    }
+                    const currentFile = new FileElement(
+                        entry.srcAbsPath,
+                        entry.dstAbsPath,
+                        path.relative(this.treeRoot, entry.dstAbsPath),
+                        entry.status,
+                        entry.isSubmodule
+                    )
+                    if (!hunksMap.has(currentFile.dstAbsPath)) {
+                        hunksMap.set(currentFile.dstAbsPath, []);
+                    }
+
+                    let ctxLines: [number, number][] = []; // circular buffer of line start/end positions for context lines, used to compute hunk hash
+                    let ctxLinesIdx = 0;
+                    let currentHunk: HunkContext | null = null; // current hunk being parsed, null if currently parsing unchanged lines between hunks
+                    let closingHunk: HunkContext[] = []; // hunks parsed waiting for after context
+                    let match = gitDiff.match(/@@ -\d+(,\d+)? \+(\d+)(,\d+)? @@/);
+                    let line = parseInt(match![2]) - 1;
+                    let startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                    let inHunk = true;
+
+                    function saveHunk(h: HunkContext) {
+                        const ctxNb = line - h.end;
+                        for(let i=DiffHunkElement.HUNK_CONTEXT_LINES - ctxNb; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                            const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                            if(ctxLine) {
+                                h.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                            }
+                        }
+                        const status2char:['M', 'D', 'A', 'M'] = ['M', 'D', 'A', 'M'];
+                        const hunkElement = new DiffHunkElement(
+                            currentFile,
+                            h.line + 1,
+                            h.preview.substring(1),
+                            h.hash.digest('hex').substring(0, 16),
+                            status2char[h.status]
+                        );
+                        hunksMap.get(currentFile.dstAbsPath)?.push(hunkElement);
+                    }
+                    function saveHunkIfComplete(h: HunkContext) {
+                        if(h.end + DiffHunkElement.HUNK_CONTEXT_LINES === line) {
+                            saveHunk(h);
+                            return false;
+                        }
+                        return true;
+                    }
+
+                    while(inHunk) {
+                        const endOfLine = gitDiff.indexOf('\n', startOfLine) + 1;
+                        let mostRecent = false; // true if current line is context or addition
+                        switch (gitDiff[startOfLine]) {
+                            case ' ':
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    closingHunk.push(currentHunk);
+                                    currentHunk = null;
+                                }
+                                mostRecent = true;
+                                break;
+                            case '+':
+                                mostRecent = true;
+                            case '-':
+                                if(currentHunk == null) {
+                                    currentHunk = {
+                                        line,
+                                        end: line,
+                                        hash: createHash('sha1'),
+                                        preview: gitDiff.substring(startOfLine, endOfLine-1),
+                                        status: mostRecent ? 2 : 1,
+                                    };
+                                    for(let i=0; i<DiffHunkElement.HUNK_CONTEXT_LINES; i++) {
+                                        const ctxLine = ctxLines[(ctxLinesIdx + i) % DiffHunkElement.HUNK_CONTEXT_LINES];
+                                        if(ctxLine) {
+                                            currentHunk.hash.update(gitDiff.substring(ctxLine[0], ctxLine[1]));
+                                        }
+                                    }
+                                }
+                                if(mostRecent && (currentHunk.preview[0] === '-' || currentHunk.preview === '+')) {
+                                    currentHunk.preview = gitDiff.substring(startOfLine, endOfLine-1);
+                                }
+                                currentHunk.status |= mostRecent ? 2 : 1;
+                                currentHunk.hash.update(gitDiff.substring(startOfLine, endOfLine));
+                                break;
+                            case '@':
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    saveHunk(currentHunk);
+                                }
+                                closingHunk.forEach(saveHunk);
+                                gitDiff = gitDiff.substring(startOfLine);
+                                match = gitDiff.match(/@@ -\d+(,\d+)? \+(\d+)(,\d+)? @@/);
+                                ctxLines = [];
+                                ctxLinesIdx = 0;
+                                currentHunk = null;
+                                closingHunk = [];
+                                line = parseInt(match![2]) - 1;
+                                startOfLine = gitDiff.indexOf('\n', match!.index) + 1;
+                                continue; // same file, reset hunk vars and continue parsing
+                            default:
+                                if(currentHunk) {
+                                    currentHunk.end = line;
+                                    saveHunk(currentHunk);
+                                }
+                                closingHunk.forEach(saveHunk);
+                                inHunk = false;
+                                continue; // end of hunks for this file
+                        }
+                        if(mostRecent) {
+                            ctxLines[ctxLinesIdx] = [startOfLine + 1, endOfLine];
+                            ctxLinesIdx = (ctxLinesIdx + 1) % DiffHunkElement.HUNK_CONTEXT_LINES
+                            line++;
+                            closingHunk = closingHunk.filter(saveHunkIfComplete);
+                        }
+                        startOfLine = endOfLine;
+                    }
+                    gitDiff = gitDiff.substring(startOfLine);
+                }
+            } catch (e) {
+                this.log('Failed to retrieve diff hunks', e as Error);
+            }
+
+            if (!this.hunksMap || this.hunksMap.size !== hunksMap.size) {
+                hunksHaveChanged = true;
+            } else {
+                for (const [filePath, newHunks] of hunksMap.entries()) {
+                    const oldHunks = this.hunksMap.get(filePath);
+                    if (!oldHunks || oldHunks.length !== newHunks.length) {
+                        hunksHaveChanged = true;
+                        break;
+                    }
+                    for (let i = 0; i < newHunks.length; i++) {
+                        if (oldHunks[i].hash !== newHunks[i].hash) {
+                            hunksHaveChanged = true;
+                            break;
+                        }
+                    }
+                    if (hunksHaveChanged) {
+                        break;
+                    }
+                }
+            }
+            
+            this.hunksMap = hunksMap;
+            const totalHunks = Array.from(hunksMap.values()).reduce((sum, hunks) => sum + hunks.length, 0);
+            this.log(`Loaded ${totalHunks} hunks in ${hunksMap.size} files`);
+        }
+
         // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
         const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
         
-        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
+        if (fireChangeEvents && (treeHasChanged || hunksHaveChanged || needsRefreshForSorting)) {
             this.log('Refreshing tree')
             this._onDidChangeTreeData.fire();
         }
@@ -834,6 +1136,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldRenameThreshold = this.renameThreshold;
         const oldCompactFolders = this.compactFolders;
         const oldshowCheckboxes = this.showCheckboxes;
+        const oldShowDiffDetails = this.showDiffDetails;
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         const oldSortOrder = this.sortOrder;
@@ -849,6 +1152,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldRenameThreshold != this.renameThreshold ||
             oldCompactFolders != this.compactFolders ||
             oldshowCheckboxes != this.showCheckboxes ||
+            oldShowDiffDetails != this.showDiffDetails ||
             oldOmitUntrackedFiles != this.omitUntrackedFiles ||
             oldOmitUnstagedChanges != this.omitUnstagedChanges ||
             oldSortOrder != this.sortOrder) {
@@ -1082,15 +1386,21 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return diffStatus;
     }
 
-    async openChanges(fileEntry?: FileElement) {
+    async openChanges(fileEntry?: FileElement | DiffHunkElement) {
+        const options: TextDocumentShowOptions = {preview: true};
+        if(fileEntry instanceof DiffHunkElement) {
+            options.selection = new Range(fileEntry.newStart - 1, 0, fileEntry.newStart - 1, 0);
+            options.preserveFocus = false;
+            fileEntry = fileEntry.fileElement;
+        }
         const diffStatus = this.getDiffStatus(fileEntry);
         if (!diffStatus) {
             return;
         }
-        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
+        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status, options);
     }
 
-    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, options: TextDocumentShowOptions) {
         const right = Uri.file(dstAbsPath);
         const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
 
@@ -1101,9 +1411,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return commands.executeCommand('vscode.open', left);
         }
 
-        const options: TextDocumentShowOptions = {
-            preview: preview
-        };
         const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
@@ -1112,7 +1419,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
         for (const file of this.iterFiles(withinFolder)) {
-            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, false);
+            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, { preview: false });
         }
     }
 
@@ -1568,6 +1875,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('showCheckboxes', !v, true);
     }
 
+    async hideDiffDetails(v: boolean) {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('showDiffDetails', !v, true);
+    }
+
     viewAsTree(v: boolean) {
         const viewAsList = !v;
         if (viewAsList === this.viewAsList)
@@ -1718,10 +2030,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
                     showCollapsed: boolean, viewAsList: boolean,
                     checkboxState: TreeItemCheckboxState | undefined,
+                    showDiffDetails: boolean,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
-        const item = new TreeItem(element.label);
+        const item = new TreeItem(element.label, showDiffDetails ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None);
         const statusText = getStatusText(element);
         item.tooltip = `${element.dstAbsPath} • ${statusText}`;
         if (element.srcAbsPath !== element.dstAbsPath) {
@@ -1747,6 +2060,22 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
                 title: ''
             };
         }
+        return item;
+    } else if (element instanceof DiffHunkElement) {
+        const item = new TreeItem(element.label);
+        item.description = `Line ${element.newStart}`;
+        item.tooltip = element.preview;
+        item.contextValue = 'diffHunk';
+        item.id = `${element.fileElement.dstAbsPath}:${element.newStart}:${element.hash}`;
+        item.iconPath = path.join(gitIconRoot, toIconName(element) + '.svg');
+        if (checkboxState !== undefined) {
+            item.checkboxState = checkboxState;
+        }
+        item.command = {
+            command: NAMESPACE + '.openChanges',
+            arguments: [element],
+            title: ''
+        };
         return item;
     } else if (element instanceof RepoRootElement) {
         const item = new TreeItem(element.label, TreeItemCollapsibleState.Collapsed);
@@ -1784,7 +2113,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     throw new Error('unsupported element type');
 }
 
-function toIconName(element: FileElement) {
+function toIconName(element: FileElement | DiffHunkElement): string {
     switch(element.status) {
         case 'U': return 'status-untracked';
         case 'A': return 'status-added';
