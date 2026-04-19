@@ -588,6 +588,11 @@
                     "description": "How to sort files when viewing as list. Only applies in list view mode. 'name' sorts by file name, 'path' sorts by full path, 'status' sorts by git status, 'recentlyModified' sorts by modification date with most recent first.",
                     "default": "path"
                 },
+                "gitTreeCompare.autoReveal": {
+                    "type": "boolean",
+                    "description": "Whether to automatically reveal and select the tree item corresponding to the currently active editor.",
+                    "default": true
+                },
                 "gitTreeCompare.openChangesWithDifftool": {
                     "type": "boolean",
                     "description": "Whether to show the 'Open Changes with Difftool' command in the context menu for files. This command opens the changes in the external diff tool configured in Git (e.g., via 'git config diff.tool').",

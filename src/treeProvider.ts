@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -114,6 +114,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private _onDidChangeTreeData = new EventEmitter<Element | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+    private fireTreeDataChange() {
+        this.parentMap.clear();
+        this.elementMap.clear();
+        this._onDidChangeTreeData.fire();
+    }
+
     // Configuration options
     private treeRootIsRepo: boolean;
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
@@ -132,6 +138,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private omitUntrackedFiles: boolean;
     private omitUnstagedChanges: boolean;
     private sortOrder: SortOrder;
+    private autoReveal: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -163,6 +170,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private treeView: TreeView<Element>;
     private isPaused: boolean;
     private checkboxStates: Map<string, CheckboxStateInfo> = new Map<string, CheckboxStateInfo>();
+    private parentMap: Map<string, Element> = new Map();
+    private elementMap: Map<string, FileElement> = new Map();
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -215,6 +224,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
 
         this.disposables.push(treeView.onDidChangeCheckboxState(this.handleChangeCheckboxState, this));
+        this.disposables.push(window.onDidChangeActiveTextEditor(this.handleActiveEditorChange, this));
     }
 
     async setRepository(repositoryRoot: string) {
@@ -262,7 +272,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async unsetRepository() {
         this.repository = undefined;
-        this._onDidChangeTreeData.fire();
+        this.fireTreeDataChange();
         this.log('No repository selected');
 
         this.updateTreeTitle();
@@ -282,7 +292,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.checkboxStates.clear();
         this.searchFilter = undefined;
         this.updateFilterContext();
-        this._onDidChangeTreeData.fire();
+        this.fireTreeDataChange();
     }
 
     async promptChangeRepository() {
@@ -358,6 +368,22 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
+    private handleActiveEditorChange(editor: TextEditor | undefined) {
+        if (!this.autoReveal || !editor || !this.treeView.visible) {
+            return;
+        }
+        const uri = editor.document.uri;
+        if (uri.scheme !== 'file') {
+            return;
+        }
+        const fileElement = this.elementMap.get(uri.fsPath);
+        if (fileElement) {
+            this.treeView.reveal(fileElement, { select: true, focus: false }).then(undefined, () => {
+                // Element may not be in the tree (e.g. not yet expanded), ignore
+            });
+        }
+    }
+
     private log(msg: string, error: Error | undefined=undefined) {
         if (error) {
             console.warn(msg, error);
@@ -394,6 +420,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
+        this.autoReveal = config.get<boolean>('autoReveal', true);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -440,6 +467,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
         }
         return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
+    }
+
+    getParent(element: Element): Element | undefined {
+        const id = getElementId(element);
+        return this.parentMap.get(id);
     }
 
     private computeFolderCheckboxState(folder: FolderElement): TreeItemCheckboxState {
@@ -490,18 +522,33 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.filesInsideTreeRoot.size > 0 ||
                 (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0);
 
-                return [new RefElement(this.repoRoot, this.baseRef, hasFiles)];
+                const children = [new RefElement(this.repoRoot, this.baseRef, hasFiles)];
+                // RefElement is the root, no parent to record
+                return children;
         } else if (element instanceof RefElement) {
             const entries: Element[] = [];
             if (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0) {
                 entries.push(new RepoRootElement(this.repoRoot));
             }
-            return entries.concat(this.getFileSystemEntries(this.treeRoot, false));
+            const children = entries.concat(this.getFileSystemEntries(this.treeRoot, false));
+            this.recordParents(element, children);
+            return children;
         } else if (element instanceof FolderElement) {
-            return this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
+            const children = this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
+            this.recordParents(element, children);
+            return children;
         }
         assert.fail("unsupported element type");
         return [];
+    }
+
+    private recordParents(parent: Element, children: Element[]) {
+        for (const child of children) {
+            this.parentMap.set(getElementId(child), parent);
+            if (child instanceof FileElement) {
+                this.elementMap.set(child.dstAbsPath, child);
+            }
+        }
     }
 
     private async updateRefs(baseRef?: string): Promise<void>
@@ -617,7 +664,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             this.filesInsideTreeRoot = new Map();
             this.filesOutsideTreeRoot = new Map();
             if (fireChangeEvents) {
-                this._onDidChangeTreeData.fire();
+                this.fireTreeDataChange();
             }
             return;
         }
@@ -686,7 +733,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             
             // Fire tree refresh to update checkbox UI
             if (actualPathsToReset.length > 0) {
-                this._onDidChangeTreeData.fire();
+                this.fireTreeDataChange();
             }
         }
 
@@ -752,7 +799,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         
         if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
             this.log('Refreshing tree')
-            this._onDidChangeTreeData.fire();
+            this.fireTreeDataChange();
         }
     }
 
@@ -882,7 +929,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     this.filesOutsideTreeRoot = new Map();
                 }
             }
-            this._onDidChangeTreeData.fire();
+            this.fireTreeDataChange();
         }
     }
 
@@ -1346,7 +1393,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.filesOutsideTreeRoot = new Map();
             }
             this.log('Refreshing tree');
-            this._onDidChangeTreeData.fire();
+            this.fireTreeDataChange();
         });
     }
 
@@ -1521,7 +1568,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     await this.updateRefs(originBaseRef);
                     await this.updateDiff(false);
                     this.log('Refreshing tree');
-                    this._onDidChangeTreeData.fire();
+                    this.fireTreeDataChange();
                     window.showInformationMessage(`Now comparing PR #${prNumber}: ${pr.title}`);
                 } catch (e: any) {
                     let msg = 'Failed to update comparison base';
@@ -1575,7 +1622,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.viewAsList = viewAsList;
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
         this.log('Refreshing tree');
-        this._onDidChangeTreeData.fire();
+        this.fireTreeDataChange();
     }
 
     async sortByName() {
@@ -1623,7 +1670,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.updateTreeTitle();
         this.updateFilterContext();
         this.log(this.searchFilter ? `Filtering files by: ${this.searchFilter}` : 'Cleared file filter');
-        this._onDidChangeTreeData.fire();
+        this.fireTreeDataChange();
     }
 
     clearFilter() {
@@ -1634,7 +1681,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.updateTreeTitle();
         this.updateFilterContext();
         this.log('Cleared file filter');
-        this._onDidChangeTreeData.fire();
+        this.fireTreeDataChange();
     }
 
     private updateFilterContext() {
@@ -1712,6 +1759,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     dispose(): void {
         this.disposables.forEach(d => d.dispose());
+    }
+}
+
+function getElementId(element: Element): string {
+    if (element instanceof RefElement) {
+        return 'ref';
+    } else if (element instanceof RepoRootElement) {
+        return 'root';
+    } else {
+        return element.dstAbsPath;
     }
 }
 
