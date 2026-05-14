@@ -94,6 +94,12 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.viewAsTree', () => {
         runAfterInit(() => provider!.viewAsTree(true));
     });
+    commands.registerCommand(NAMESPACE + '.hideCheckedInTree', () => {
+        runAfterInit(() => provider!.setHideCheckedFiles(true));
+    });
+    commands.registerCommand(NAMESPACE + '.showCheckedInTree', () => {
+        runAfterInit(() => provider!.setHideCheckedFiles(false));
+    });
     commands.registerCommand(NAMESPACE + '.searchChanges', () => {
         runAfterInit(() => provider!.searchChanges());
     });
@@ -133,6 +139,7 @@ export function activate(context: ExtensionContext) {
 
         // Set initial context for menu enablement (starts in tree view mode)
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
+        commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);

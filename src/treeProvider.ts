@@ -144,6 +144,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private repository: Repository | undefined;
     private baseRef: string;
     private viewAsList = false;
+    private hideCheckedFiles = false;
     private searchFilter: string | undefined;
 
     // Static state of repository
@@ -365,6 +366,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     timestamp: Date.now()
                 });
             }
+        }
+        if (this.hideCheckedFiles) {
+            this._onDidChangeTreeData.fire();
         }
     }
 
@@ -885,6 +889,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         const oldSortOrder = this.sortOrder;
         this.readConfig();
+        if (oldshowCheckboxes && !this.showCheckboxes && this.hideCheckedFiles) {
+            this.hideCheckedFiles = false;
+            commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
+        }
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
@@ -944,8 +952,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                relativePath.toLowerCase().includes(searchLower);
     }
 
+    private isFileCheckboxChecked(dstAbsPath: string): boolean {
+        const stateInfo = this.checkboxStates.get(dstAbsPath);
+        return stateInfo?.state === TreeItemCheckboxState.Checked;
+    }
+
+    /** Whether this file row should appear in the tree (search + optional hide-checked). */
+    private fileVisibleInTree(dstAbsPath: string, relPathBase: string): boolean {
+        if (!this.matchesFilter(dstAbsPath, relPathBase)) {
+            return false;
+        }
+        if (this.hideCheckedFiles && this.isFileCheckboxChecked(dstAbsPath)) {
+            return false;
+        }
+        return true;
+    }
+
     private folderHasMatchingFiles(folder: string, useFilesOutsideTreeRoot: boolean): boolean {
-        if (!this.searchFilter) {
+        if (!this.searchFilter && !this.hideCheckedFiles) {
             return true;
         }
         const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
@@ -954,7 +978,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         for (const [folderPath, fileEntries] of files.entries()) {
             if (folderPath === folder || folderPath.startsWith(folder + path.sep)) {
                 for (const file of fileEntries) {
-                    if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                    if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
                         return true;
                     }
                 }
@@ -981,7 +1005,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             for (const folder2 of folders) {
                 const fileEntries = files.get(folder2)!;
                 for (const file of fileEntries) {
-                    if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                    if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
                         const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
                         entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
                     }
@@ -1044,7 +1068,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
+                if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
                     const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
                     entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
                 }
@@ -1621,6 +1645,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         this.viewAsList = viewAsList;
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
+        this.log('Refreshing tree');
+        this._onDidChangeTreeData.fire();
+    }
+
+    setHideCheckedFiles(hide: boolean) {
+        if (hide === this.hideCheckedFiles) {
+            return;
+        }
+        this.hideCheckedFiles = hide;
+        commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', hide);
         this.log('Refreshing tree');
         this.fireTreeDataChange();
     }
