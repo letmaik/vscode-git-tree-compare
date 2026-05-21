@@ -224,6 +224,30 @@ function parseDiffNumstat(repoRoot: string, out: string): Map<string, IDiffStats
     return stats;
 }
 
+async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
+    await Promise.all(entries.map(async (entry) => {
+        try {
+            const buf = Buffer.alloc(8192);
+            const handle = await fs.open(entry.dstAbsPath, 'r');
+            try {
+                const { bytesRead } = await handle.read(buf, 0, 8192, 0);
+                if (buf.subarray(0, bytesRead).includes(0)) {
+                    entry.stats = { insertions: undefined, deletions: undefined, isBinary: true };
+                    return;
+                }
+            } finally {
+                await handle.close();
+            }
+            const content = await fs.readFile(entry.dstAbsPath, 'utf-8');
+            const lines = content.split('\n');
+            const lineCount = content.endsWith('\n') ? lines.length - 1 : lines.length;
+            entry.stats = { insertions: lineCount, deletions: 0, isBinary: false };
+        } catch {
+            // File may be inaccessible
+        }
+    }));
+}
+
 export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
     if (refreshIndex) {
         // avoid superfluous diff entries if files only got touched
@@ -283,6 +307,10 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
                 entry.stats = fileStats;
             }
         }
+    }
+
+    if (showDiffStats && untrackedStatuses.length > 0) {
+        await computeUntrackedStats(untrackedStatuses);
     }
 
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
