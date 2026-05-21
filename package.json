@@ -601,7 +601,7 @@
                 "gitTreeCompare.showDiffStats": {
                     "type": "boolean",
                     "description": "Whether to show insertion/deletion counts (+N -N) next to each file.",
-                    "default": true
+                    "default": false
                 }
             }
         }

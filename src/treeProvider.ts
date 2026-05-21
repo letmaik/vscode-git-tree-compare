@@ -423,7 +423,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
         this.autoReveal = config.get<boolean>('autoReveal', true);
-        this.showDiffStats = config.get<boolean>('showDiffStats', true);
+        this.showDiffStats = config.get<boolean>('showDiffStats', false);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
