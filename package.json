@@ -597,6 +597,11 @@
                     "type": "boolean",
                     "description": "Whether to show the 'Open Changes with Difftool' command in the context menu for files. This command opens the changes in the external diff tool configured in Git (e.g., via 'git config diff.tool').",
                     "default": false
+                },
+                "gitTreeCompare.showDiffStats": {
+                    "type": "boolean",
+                    "description": "Whether to show insertion/deletion counts (+N -N) next to each file.",
+                    "default": true
                 }
             }
         }

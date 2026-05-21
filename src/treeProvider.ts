@@ -11,7 +11,7 @@ import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, StatusCode, getAbsGitDir,
+         diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
@@ -47,7 +47,8 @@ class FileElement implements IDiffStatus {
         public dstAbsPath: string,
         public dstRelPath: string,
         public status: StatusCode,
-        public isSubmodule: boolean) {}
+        public isSubmodule: boolean,
+        public stats: IDiffStats | undefined = undefined) {}
 
     get label(): string {
         return path.basename(this.dstAbsPath)
@@ -139,6 +140,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private omitUnstagedChanges: boolean;
     private sortOrder: SortOrder;
     private autoReveal: boolean;
+    private showDiffStats: boolean;
 
     // Dynamic options
     private repository: Repository | undefined;
@@ -421,6 +423,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
         this.autoReveal = config.get<boolean>('autoReveal', true);
+        this.showDiffStats = config.get<boolean>('showDiffStats', true);
     }
 
     private async getStoredBaseRef(): Promise<string | undefined> {
@@ -466,7 +469,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 checkboxState = this.computeFolderCheckboxState(element);
             }
         }
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, checkboxState, this.asAbsolutePath);
+        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
     }
 
     getParent(element: Element): Element | undefined {
@@ -653,7 +656,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges);
+        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
@@ -884,6 +887,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         const oldSortOrder = this.sortOrder;
+        const oldShowDiffStats = this.showDiffStats;
         this.readConfig();
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -898,7 +902,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldshowCheckboxes != this.showCheckboxes ||
             oldOmitUntrackedFiles != this.omitUntrackedFiles ||
             oldOmitUnstagedChanges != this.omitUnstagedChanges ||
-            oldSortOrder != this.sortOrder) {
+            oldSortOrder != this.sortOrder ||
+            oldShowDiffStats != this.showDiffStats) {
 
             if (!this.repository) {
                 return;
@@ -916,7 +921,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 (!oldAutoRefresh && this.autoRefresh) ||
                 (!oldRefreshIndex && this.refreshIndex) ||
                 oldOmitUntrackedFiles != this.omitUntrackedFiles ||
-                oldOmitUnstagedChanges != this.omitUnstagedChanges) {
+                oldOmitUnstagedChanges != this.omitUnstagedChanges ||
+                oldShowDiffStats != this.showDiffStats) {
                 try {
                     await this.updateRefs(this.baseRef);
                     await this.updateDiff(false);
@@ -983,7 +989,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 for (const file of fileEntries) {
                     if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
                         const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                        entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                        entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, file.stats));
                     }
                 }
             }
@@ -1046,7 +1052,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             for (const file of fileEntries) {
                 if (this.matchesFilter(file.dstAbsPath, relPathBase)) {
                     const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule));
+                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, file.stats));
                 }
             }
         }
@@ -1772,23 +1778,43 @@ function getElementId(element: Element): string {
     }
 }
 
+function formatDiffStats(stats: IDiffStats): string {
+    if (stats.isBinary) {
+        return 'binary';
+    }
+    const parts: string[] = [];
+    if (stats.insertions !== undefined && stats.insertions > 0) {
+        parts.push(`+${stats.insertions}`);
+    }
+    if (stats.deletions !== undefined && stats.deletions > 0) {
+        parts.push(`-${stats.deletions}`);
+    }
+    return parts.join(' ');
+}
+
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
-                    showCollapsed: boolean, viewAsList: boolean,
+                    showCollapsed: boolean, viewAsList: boolean, showDiffStats: boolean,
                     checkboxState: TreeItemCheckboxState | undefined,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
     if (element instanceof FileElement) {
-        const item = new TreeItem(element.label);
+        const statsText = showDiffStats && element.stats ? formatDiffStats(element.stats) : '';
+        const displayLabel = statsText ? `${element.label}  ${statsText}` : element.label;
+        const item = new TreeItem(displayLabel);
         const statusText = getStatusText(element);
         item.tooltip = `${element.dstAbsPath} • ${statusText}`;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
         }
+        if (statsText) {
+            item.tooltip = `${item.tooltip} • ${statsText}`;
+        }
         if (viewAsList) {
-            item.description = path.dirname(element.dstRelPath);
-            if (item.description === '.') {
-                item.description = '';
+            let desc = path.dirname(element.dstRelPath);
+            if (desc === '.') {
+                desc = '';
             }
+            item.description = desc;
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;
