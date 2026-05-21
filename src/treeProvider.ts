@@ -1810,11 +1810,10 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
             item.tooltip = `${item.tooltip} • ${statsText}`;
         }
         if (viewAsList) {
-            let desc = path.dirname(element.dstRelPath);
-            if (desc === '.') {
-                desc = '';
+            item.description = path.dirname(element.dstRelPath);
+            if (item.description === '.') {
+                item.description = '';
             }
-            item.description = desc;
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;

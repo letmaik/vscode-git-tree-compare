@@ -176,6 +176,7 @@ const SHA1_LEN = 40;
 const SRC_MODE_OFFSET = 1;
 const DST_MODE_OFFSET = 2 + MODE_LEN;
 const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
+const BINARY_CHECK_BYTES = 8192;
 
 function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
     const entries: IDiffStatus[] = [];
@@ -227,10 +228,10 @@ function parseDiffNumstat(repoRoot: string, out: string): Map<string, IDiffStats
 async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
     await Promise.all(entries.map(async (entry) => {
         try {
-            const buf = Buffer.alloc(8192);
+            const buf = Buffer.alloc(BINARY_CHECK_BYTES);
             const handle = await fs.open(entry.dstAbsPath, 'r');
             try {
-                const { bytesRead } = await handle.read(buf, 0, 8192, 0);
+                const { bytesRead } = await handle.read(buf, 0, BINARY_CHECK_BYTES, 0);
                 if (buf.subarray(0, bytesRead).includes(0)) {
                     entry.stats = { insertions: undefined, deletions: undefined, isBinary: true };
                     return;
