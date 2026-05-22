@@ -800,7 +800,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
         const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
         
-        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting)) {
+        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting || this.showDiffStats)) {
             this.log('Refreshing tree')
             this.fireTreeDataChange();
         }
