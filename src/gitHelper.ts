@@ -176,7 +176,6 @@ const SHA1_LEN = 40;
 const SRC_MODE_OFFSET = 1;
 const DST_MODE_OFFSET = 2 + MODE_LEN;
 const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
-const BINARY_CHECK_BYTES = 8192;
 
 function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
     const entries: IDiffStatus[] = [];
@@ -225,6 +224,8 @@ function parseDiffNumstat(repoRoot: string, out: string): Map<string, IDiffStats
     return stats;
 }
 
+const BINARY_CHECK_BYTES = 8192;
+
 async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
     await Promise.all(entries.map(async (entry) => {
         try {
@@ -268,22 +269,11 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
         diffIndexArgs.push('--cached');
     }
     diffIndexArgs.push(ref, '--');
-    const diffIndexPromise = repo.exec(diffIndexArgs);
-
-    const untrackedPromise = omitUntrackedFiles
-        ? undefined
-        : repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
-
-    const numstatPromise = showDiffStats
-        ? repo.exec(['diff', '--numstat', renamesFlag, ref, '--'])
-        : undefined;
-
-    const [diffIndexResult, untrackedResult, numstatResult] = await Promise.all([
-        diffIndexPromise, untrackedPromise, numstatPromise
-    ]);
-
+    let diffIndexResult = await repo.exec(diffIndexArgs);
+    
     let untrackedStatuses: IDiffStatus[] = [];
-    if (untrackedResult) {
+    if (!omitUntrackedFiles) {
+        let untrackedResult = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
         untrackedStatuses = untrackedResult.stdout.split('\0')
             .slice(0, -1)
             .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
@@ -300,7 +290,8 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
 
     const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
 
-    if (numstatResult) {
+    if (showDiffStats) {
+        const numstatResult = await repo.exec(['diff', '--numstat', renamesFlag, ref, '--']);
         const numstatMap = parseDiffNumstat(repoRoot, numstatResult.stdout);
         for (const entry of statuses) {
             const fileStats = numstatMap.get(entry.dstAbsPath) || numstatMap.get(entry.srcAbsPath);
@@ -308,10 +299,10 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
                 entry.stats = fileStats;
             }
         }
-    }
 
-    if (showDiffStats && untrackedStatuses.length > 0) {
-        await computeUntrackedStats(untrackedStatuses);
+        if (untrackedStatuses.length > 0) {
+            await computeUntrackedStats(untrackedStatuses);
+        }
     }
 
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
