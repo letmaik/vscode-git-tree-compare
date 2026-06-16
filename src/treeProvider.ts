@@ -12,7 +12,8 @@ import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile,
+         listWorktrees, IWorktreeInfo } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -99,11 +100,36 @@ class ChangeBaseCommitItem implements QuickPickItem {
 	get description(): string { return ""; }
 }
 
-class ChangeRepositoryItem implements QuickPickItem {
+interface RepositoryPickItem extends QuickPickItem {
+    repositoryPath: string;
+}
+
+class ChangeRepositoryItem implements RepositoryPickItem {
     constructor(public repositoryRoot: string) { }
 
+    get repositoryPath(): string { return normalizePath(this.repositoryRoot); }
 	get label(): string { return path.basename(this.repositoryRoot); }
 	get description(): string { return this.repositoryRoot; }
+}
+
+class WorkingTreePickItem implements RepositoryPickItem {
+    constructor(public repositoryPath: string) { }
+
+    get label(): string { return '$(home) Working Tree'; }
+    get description(): string { return this.repositoryPath; }
+}
+
+class ChangeWorktreeItem implements RepositoryPickItem {
+    constructor(public worktree: IWorktreeInfo) { }
+
+    get repositoryPath(): string { return this.worktree.path; }
+    get label(): string {
+        if (this.worktree.branch) {
+            return `$(git-branch) ${this.worktree.branch}`;
+        }
+        return `$(git-commit) ${this.worktree.head.substr(0, 8)}`;
+    }
+    get description(): string { return this.worktree.path; }
 }
 
 type FolderAbsPath = string;
@@ -235,26 +261,45 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
         if (workspaceFolders.length == 0) {
-            throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
+            const worktrees = this.repository ? await listWorktrees(this.repository) : [];
+            const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
+            if (!isLinkedWorktree) {
+                throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
+            }
+            this.workspaceFolder = repoRoot;
+        } else {
+            // Sort descending by folder depth
+            workspaceFolders.sort((a, b) => {
+                const aDepth = a.uri.fsPath.split(path.sep).length;
+                const bDepth = b.uri.fsPath.split(path.sep).length;
+                return bDepth - aDepth;
+            });
+            // If repo appears in multiple workspace folders, pick the deepest one.
+            // TODO let the user choose which one
+            this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
         }
 
         this.repository = repository;
         this.absGitDir = absGitDir;
         this.repoRoot = repoRoot;
-
-        // Sort descending by folder depth
-        workspaceFolders.sort((a, b) => {
-            const aDepth = a.uri.fsPath.split(path.sep).length;
-            const bDepth = b.uri.fsPath.split(path.sep).length;
-            return bDepth - aDepth;
-        });
-        // If repo appears in multiple workspace folders, pick the deepest one.
-        // TODO let the user choose which one
-        this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
         this.updateTreeRootFolder();
         this.log('Using repository: ' + this.repoRoot);
 
         this.updateTreeTitle();
+        this.updateWorktreeContext();
+    }
+
+    private updateWorktreeContext() {
+        const workspaceRoot = this.getWorkspaceRepositoryRoot();
+        const viewingWorktree = workspaceRoot !== undefined && this.repoRoot !== workspaceRoot;
+        commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', viewingWorktree);
+        if (this.repository) {
+            listWorktrees(this.repository).then(worktrees => {
+                commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', worktrees.length > 1);
+            });
+        } else {
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
+        }
     }
 
     private updateTreeTitle() {
@@ -295,6 +340,26 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.fireTreeDataChange();
     }
 
+    private getWorkspaceRepositoryRoot(): string | undefined {
+        const repos = getGitRepositoryFolders(this.gitApi, true);
+        if (repos.length > 0) {
+            return normalizePath(repos[0]);
+        }
+        return undefined;
+    }
+
+    async switchToWorkingTree() {
+        const workspaceRoot = this.getWorkspaceRepositoryRoot();
+        if (!workspaceRoot) {
+            window.showErrorMessage('No workspace repository found');
+            return;
+        }
+        if (workspaceRoot === this.repoRoot) {
+            return;
+        }
+        await this.changeRepository(workspaceRoot);
+    }
+
     async promptChangeRepository() {
         const gitRepos = getGitRepositoryFolders(this.gitApi);
         const gitReposWithoutCurrent = gitRepos.filter(w => this.repoRoot !== w);
@@ -307,6 +372,36 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         await this.changeRepository(choice.repositoryRoot);
+    }
+
+    async promptChangeWorktree() {
+        if (!this.repository) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+
+        const workspaceRoot = this.getWorkspaceRepositoryRoot();
+        const worktrees = await listWorktrees(this.repository);
+        let picks: RepositoryPickItem[] = worktrees
+            .filter(wt => wt.path !== this.repoRoot && wt.path !== workspaceRoot)
+            .map(wt => new ChangeWorktreeItem(wt));
+
+        picks.sort((a, b) => a.label.localeCompare(b.label));
+
+        if (workspaceRoot && workspaceRoot !== this.repoRoot) {
+            picks = [new WorkingTreePickItem(workspaceRoot), ...picks];
+        }
+
+        if (picks.length === 0) {
+            window.showInformationMessage('No other worktrees available');
+            return;
+        }
+
+        const choice = await window.showQuickPick(picks, { placeHolder: 'Select a worktree' });
+        if (!choice) {
+            return;
+        }
+        await this.changeRepository(choice.repositoryPath);
     }
 
     private async handleRepositoryOpened(repository: GitAPIRepository) {
