@@ -30,11 +30,19 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Search within changed files
 
+- View diffs for linked git worktrees via **Change Worktree...**, switch back via **Switch to Working Tree**
+
 ## Location
 
 By default, the tree view is located in its own container accessible from the activity bar on the left. However, it can be freely moved to any other location like Source Control or Explorer by dragging and dropping.
 
 <img src="screenshots/move-view.gif" alt="Moving of Git Tree Compare view between containers" width="256" />
+
+## Git worktrees
+
+If you use [git worktrees](https://git-scm.com/docs/git-worktree), you can switch the tree view to another linked worktree with **Change Worktree...** from the view title bar. To return to your workspace checkout, use **Switch to Working Tree**. It appears as a dedicated button whenever you're viewing a different worktree, and as the first option in the **Change Worktree...** menu.
+
+Worktrees must be within your workspace folder (or open the worktree folder as your workspace) for the extension to display them.
 
 ## Compare GitHub Pull Requests
 
