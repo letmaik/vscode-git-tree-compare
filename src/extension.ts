@@ -55,6 +55,16 @@ export function activate(context: ExtensionContext) {
             provider!.promptChangeRepository();
         });
     });
+    commands.registerCommand(NAMESPACE + '.changeWorktree', () => {
+        runAfterInit(() => {
+            provider!.promptChangeWorktree();
+        });
+    });
+    commands.registerCommand(NAMESPACE + '.switchToWorkingTree', () => {
+        runAfterInit(() => {
+            provider!.switchToWorkingTree();
+        });
+    });
     commands.registerCommand(NAMESPACE + '.changeBase', () => {
         runAfterInit(() => {
             provider!.promptChangeBase();
@@ -134,6 +144,8 @@ export function activate(context: ExtensionContext) {
         // Set initial context for menu enablement (starts in tree view mode)
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
+        commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
+        commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
