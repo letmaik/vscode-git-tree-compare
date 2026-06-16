@@ -59,6 +59,46 @@ export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
     return dir;
 }
 
+export interface IWorktreeInfo {
+    path: string;
+    head: string;
+    branch: string | undefined;
+}
+
+export async function listWorktrees(repo: Repository): Promise<IWorktreeInfo[]> {
+    const result = await repo.exec(['worktree', 'list', '--porcelain']);
+    const worktrees: IWorktreeInfo[] = [];
+    let currentPath: string | undefined;
+    let currentHead: string | undefined;
+    let currentBranch: string | undefined;
+
+    const flush = () => {
+        if (currentPath && currentHead) {
+            worktrees.push({
+                path: normalizePath(currentPath),
+                head: currentHead,
+                branch: currentBranch,
+            });
+        }
+        currentPath = undefined;
+        currentHead = undefined;
+        currentBranch = undefined;
+    };
+
+    for (const line of result.stdout.split('\n')) {
+        if (line.startsWith('worktree ')) {
+            flush();
+            currentPath = line.slice('worktree '.length);
+        } else if (line.startsWith('HEAD ')) {
+            currentHead = line.slice('HEAD '.length);
+        } else if (line.startsWith('branch refs/heads/')) {
+            currentBranch = line.slice('branch refs/heads/'.length);
+        }
+    }
+    flush();
+    return worktrees;
+}
+
 export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
     // determine which remote HEAD is tracking
     let remote: string
