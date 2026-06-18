@@ -149,6 +149,18 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.hideCheckedInTree",
+                "title": "Hide checked files",
+                "icon": "$(eye)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.showCheckedInTree",
+                "title": "Show checked files",
+                "icon": "$(eye-closed)",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.searchChanges",
                 "title": "Search Changes",
                 "icon": "$(search)",
@@ -314,6 +326,16 @@
                     "command": "gitTreeCompare.hideCheckboxes",
                     "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes",
                     "group": "3_options"
+                },
+                {
+                    "command": "gitTreeCompare.hideCheckedInTree",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes && !gitTreeCompare.hideCheckedFiles",
+                    "group": "navigation@0"
+                },
+                {
+                    "command": "gitTreeCompare.showCheckedInTree",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.showCheckboxes && gitTreeCompare.hideCheckedFiles",
+                    "group": "navigation@0"
                 },
                 {
                     "command": "gitTreeCompare.viewAsList",
