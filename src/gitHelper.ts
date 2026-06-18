@@ -110,6 +110,12 @@ export async function getHeadModificationDate(absGitDir: string): Promise<Date> 
     return stats.mtime;
 }
 
+export interface IDiffStats {
+    insertions: number | undefined;
+    deletions: number | undefined;
+    isBinary: boolean;
+}
+
 export interface IDiffStatus {
     /**
      * A Addition of a file
@@ -130,6 +136,9 @@ export interface IDiffStatus {
 
     /** True if this was or is a submodule */
     isSubmodule: boolean
+
+    /** Per-file insertion/deletion counts (undefined when stats are disabled or unavailable) */
+    stats: IDiffStats | undefined;
 }
 
 const MODE_REGULAR_FILE = '100644';
@@ -140,6 +149,7 @@ class DiffStatus implements IDiffStatus {
     readonly srcAbsPath: string;
     readonly dstAbsPath: string;
     readonly isSubmodule: boolean;
+    stats: IDiffStats | undefined;
 
     constructor(repoRoot: string, public status: StatusCode, srcRelPath: string, dstRelPath: string | undefined, srcMode: string, dstMode: string) {
         this.srcAbsPath = path.join(repoRoot, srcRelPath);
@@ -194,7 +204,53 @@ function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
     return entries;
 }
 
-export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean): Promise<IDiffStatus[]> {
+function parseDiffNumstat(repoRoot: string, out: string): Map<string, IDiffStats> {
+    const stats = new Map<string, IDiffStats>();
+    const lines = out.split('\n').filter(line => line.length > 0);
+    for (const line of lines) {
+        const parts = line.split('\t');
+        if (parts.length < 3) {
+            continue;
+        }
+        const [ins, del, ...pathParts] = parts;
+        const relPath = pathParts.join('\t');
+        const absPath = path.join(repoRoot, relPath);
+        if (ins === '-' && del === '-') {
+            stats.set(absPath, { insertions: undefined, deletions: undefined, isBinary: true });
+        } else {
+            stats.set(absPath, { insertions: parseInt(ins, 10), deletions: parseInt(del, 10), isBinary: false });
+        }
+    }
+    return stats;
+}
+
+const BINARY_CHECK_BYTES = 8192;
+
+async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
+    await Promise.all(entries.map(async (entry) => {
+        try {
+            const buf = Buffer.alloc(BINARY_CHECK_BYTES);
+            const handle = await fs.open(entry.dstAbsPath, 'r');
+            try {
+                const { bytesRead } = await handle.read(buf, 0, BINARY_CHECK_BYTES, 0);
+                if (buf.subarray(0, bytesRead).includes(0)) {
+                    entry.stats = { insertions: undefined, deletions: undefined, isBinary: true };
+                    return;
+                }
+            } finally {
+                await handle.close();
+            }
+            const content = await fs.readFile(entry.dstAbsPath, 'utf-8');
+            const lines = content.split('\n');
+            const lineCount = content.endsWith('\n') ? lines.length - 1 : lines.length;
+            entry.stats = { insertions: lineCount, deletions: 0, isBinary: false };
+        } catch {
+            // File may be inaccessible
+        }
+    }));
+}
+
+export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
     if (refreshIndex) {
         // avoid superfluous diff entries if files only got touched
         // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
@@ -233,6 +289,22 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
     const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
 
     const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
+
+    if (showDiffStats) {
+        const numstatResult = await repo.exec(['diff', '--numstat', renamesFlag, ref, '--']);
+        const numstatMap = parseDiffNumstat(repoRoot, numstatResult.stdout);
+        for (const entry of statuses) {
+            const fileStats = numstatMap.get(entry.dstAbsPath) || numstatMap.get(entry.srcAbsPath);
+            if (fileStats) {
+                entry.stats = fileStats;
+            }
+        }
+
+        if (untrackedStatuses.length > 0) {
+            await computeUntrackedStats(untrackedStatuses);
+        }
+    }
+
     statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath))
     return statuses;
 }
