@@ -2,7 +2,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 
 import { workspace, OutputChannel, WorkspaceFolder } from 'vscode';
-import { Git, Repository } from './git/git';
+import { Git, Repository, IExecutionResult } from './git/git';
 import { Ref, Branch } from './git/api/git';
 import { normalizePath } from './fsUtils';
 import { API as GitAPI } from './typings/git';
@@ -114,6 +114,32 @@ export interface IDiffStats {
     insertions: number | undefined;
     deletions: number | undefined;
     isBinary: boolean;
+}
+
+/** The well-known SHA-1 of the empty git tree, usable as a diff base for root commits. */
+export const EMPTY_TREE_ID = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+export interface ICommitInfo {
+    /** Full commit hash. */
+    hash: string;
+    /** Abbreviated commit hash. */
+    shortHash: string;
+    /** First line of the commit message. */
+    subject: string;
+    authorName: string;
+    authorDate: Date | undefined;
+    /** Parent commit hashes (first entry is the first parent). */
+    parents: string[];
+    /** Number of files changed in this commit. */
+    fileCount: number;
+    insertions: number;
+    deletions: number;
+}
+
+export interface IUncommittedSummary {
+    fileCount: number;
+    insertions: number;
+    deletions: number;
 }
 
 export interface IDiffStatus {
@@ -321,4 +347,132 @@ export async function hasUncommittedChanges(repo: Repository, path: string, igno
 
 export async function rmFile(repo: Repository, absPath: string): Promise<void> {
     await repo.exec(['rm', '-f', absPath]);
+}
+
+/**
+ * Diffs two tree-ish objects (commits/trees) against each other.
+ * Unlike {@link diffIndex}, this does not involve the working tree or untracked files.
+ * `diff-tree` is a plumbing command that always emits full object IDs, which the raw
+ * output parser relies on.
+ */
+export async function diffTrees(repo: Repository, leftRef: string, rightRef: string,
+        findRenames: boolean, renameThreshold: number, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
+    const repoRoot = normalizePath(repo.root);
+    const renamesFlag = findRenames ? `--find-renames=${renameThreshold}%` : '--no-renames';
+
+    const rawResult = await repo.exec(['diff-tree', '-r', '-z', renamesFlag, leftRef, rightRef, '--']);
+    const statuses = parseDiffIndexOutput(repoRoot, rawResult.stdout);
+
+    if (showDiffStats) {
+        const numstatResult = await repo.exec(['diff', '--numstat', renamesFlag, leftRef, rightRef, '--']);
+        const numstatMap = parseDiffNumstat(repoRoot, numstatResult.stdout);
+        for (const entry of statuses) {
+            const fileStats = numstatMap.get(entry.dstAbsPath) || numstatMap.get(entry.srcAbsPath);
+            if (fileStats) {
+                entry.stats = fileStats;
+            }
+        }
+    }
+
+    statuses.sort((s1, s2) => s1.dstAbsPath.localeCompare(s2.dstAbsPath));
+    return statuses;
+}
+
+const LOG_RECORD_SEP = '\x1e';
+const LOG_FIELD_SEP = '\x1f';
+
+/**
+ * Returns the commits reachable from `headRef` but not from `baseRef` (i.e. `baseRef..headRef`),
+ * newest first, each annotated with aggregate diff stats (files/insertions/deletions).
+ * Merge commits are reported with zero stats since `--numstat` suppresses combined diffs.
+ */
+export async function getBranchCommits(repo: Repository, baseRef: string, headRef: string): Promise<ICommitInfo[]> {
+    const format = LOG_RECORD_SEP + ['%H', '%h', '%an', '%aI', '%P', '%s'].join(LOG_FIELD_SEP);
+    let result: IExecutionResult<string>;
+    try {
+        result = await repo.exec(['log', `${baseRef}..${headRef}`, '--numstat', `--format=${format}`]);
+    } catch (e) {
+        // e.g. unborn HEAD or invalid range
+        return [];
+    }
+
+    const commits: ICommitInfo[] = [];
+    let current: ICommitInfo | undefined;
+    for (const line of result.stdout.split('\n')) {
+        if (line.length === 0) {
+            continue;
+        }
+        if (line[0] === LOG_RECORD_SEP) {
+            const [hash, shortHash, authorName, authorISO, parents, subject] = line.slice(1).split(LOG_FIELD_SEP);
+            current = {
+                hash: hash || '',
+                shortHash: shortHash || '',
+                authorName: authorName || '',
+                authorDate: authorISO ? new Date(authorISO) : undefined,
+                parents: parents ? parents.split(' ').filter(p => p.length > 0) : [],
+                subject: subject || '',
+                fileCount: 0,
+                insertions: 0,
+                deletions: 0,
+            };
+            commits.push(current);
+        } else if (current) {
+            // numstat line: <insertions>\t<deletions>\t<path>
+            const tab1 = line.indexOf('\t');
+            if (tab1 === -1) {
+                continue;
+            }
+            const tab2 = line.indexOf('\t', tab1 + 1);
+            if (tab2 === -1) {
+                continue;
+            }
+            const insStr = line.substring(0, tab1);
+            const delStr = line.substring(tab1 + 1, tab2);
+            current.fileCount++;
+            if (insStr !== '-') {
+                current.insertions += parseInt(insStr, 10) || 0;
+            }
+            if (delStr !== '-') {
+                current.deletions += parseInt(delStr, 10) || 0;
+            }
+        }
+    }
+    return commits;
+}
+
+/**
+ * Computes an aggregate summary of uncommitted changes (working tree vs HEAD), including
+ * untracked files in the file count (unless omitted). Insertion/deletion counts cover
+ * tracked changes only.
+ */
+export async function getUncommittedSummary(repo: Repository, omitUntrackedFiles: boolean = false): Promise<IUncommittedSummary> {
+    const repoRoot = normalizePath(repo.root);
+    let fileCount = 0;
+    let insertions = 0;
+    let deletions = 0;
+
+    try {
+        const res = await repo.exec(['diff', '--numstat', 'HEAD', '--']);
+        const map = parseDiffNumstat(repoRoot, res.stdout);
+        for (const [, stats] of map) {
+            fileCount++;
+            if (!stats.isBinary) {
+                insertions += stats.insertions || 0;
+                deletions += stats.deletions || 0;
+            }
+        }
+    } catch (e) {
+        // HEAD may be unborn (no commits yet); ignore
+    }
+
+    if (!omitUntrackedFiles) {
+        try {
+            const res = await repo.exec(['ls-files', '-z', '--others', '--exclude-standard']);
+            fileCount += res.stdout.split('\0').filter(s => s.length > 0).length;
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    return { fileCount, insertions, deletions };
 }

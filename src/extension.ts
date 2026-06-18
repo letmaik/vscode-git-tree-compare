@@ -2,6 +2,7 @@ import { ExtensionContext, window, Disposable, commands, extensions } from 'vsco
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider } from './treeProvider';
+import { CommitsTreeProvider } from './commitsProvider';
 import { createGit } from './gitHelper';
 import { toDisposable } from './git/util';
 import { GitExtension } from './typings/git';
@@ -17,6 +18,7 @@ export function activate(context: ExtensionContext) {
     const gitApi = gitExt.getAPI(1);
 
     let provider: GitTreeCompareProvider | null = null;
+    let commitsProvider: CommitsTreeProvider | null = null;
 
     let runAfterInit = (fn: () => any) => {
         if (provider == null) {
@@ -132,6 +134,17 @@ export function activate(context: ExtensionContext) {
         runAfterInit(() => provider!.openChangesWithDifftool(node));
     });
 
+    commands.registerCommand(NAMESPACE + '.commits.selectAll', () => {
+        commitsProvider?.selectAll();
+    });
+    commands.registerCommand(NAMESPACE + '.commits.deselectAll', () => {
+        commitsProvider?.deselectAll();
+    });
+    commands.registerCommand(NAMESPACE + '.commits.refresh', () => {
+        // Refresh the whole comparison; the commits list updates via onDidChangeComparison.
+        runAfterInit(() => provider!.manualRefresh());
+    });
+
     createGit(gitApi, outputChannel).then(async git => {
         const onOutput = (str: string) => outputChannel.append(str);
         git.onOutput.addListener('log', onOutput);
@@ -153,5 +166,16 @@ export function activate(context: ExtensionContext) {
         );
 
         provider.init(treeView);
+
+        commitsProvider = new CommitsTreeProvider(provider, outputChannel);
+        const commitsTreeView = window.createTreeView(
+            NAMESPACE + 'Commits',
+            {
+                treeDataProvider: commitsProvider,
+            }
+        );
+        disposables.push(commitsTreeView);
+        disposables.push(commitsProvider);
+        commitsProvider.init(commitsTreeView);
     });
 }

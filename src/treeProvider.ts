@@ -3,16 +3,19 @@ import * as path from 'path'
 import * as fs from 'fs'
 
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
-         Uri, Disposable, EventEmitter, TextDocumentShowOptions,
+         Uri, Disposable, EventEmitter, Event, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor, TabInputTextDiff, Range, TextEditorRevealType } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
+         diffIndex, diffTrees, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile,
+         getBranchCommits as gitGetBranchCommits, getUncommittedSummary as gitGetUncommittedSummary,
+         ICommitInfo, IUncommittedSummary } from './gitHelper'
+import { CommitFilterSpec, ComparisonInfo, ComparisonHost, commitFilterSpecEquals } from './commitsProvider'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -109,11 +112,16 @@ class ChangeRepositoryItem implements QuickPickItem {
 
 type FolderAbsPath = string;
 
-export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
+export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable, ComparisonHost {
 
     // Events
     private _onDidChangeTreeData = new EventEmitter<Element | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+    // Fired whenever the active comparison (repository, base/merge base or HEAD) changes,
+    // so the commits list can refresh itself.
+    private _onDidChangeComparison = new EventEmitter<void>();
+    readonly onDidChangeComparison: Event<void> = this._onDidChangeComparison.event;
 
     private fireTreeDataChange() {
         this.parentMap.clear();
@@ -148,6 +156,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private viewAsList = false;
     private hideCheckedFiles = false;
     private searchFilter: string | undefined;
+
+    // Restricts the diff to a subset of commits selected in the commits list.
+    // Defaults to the full comparison (working tree vs base).
+    private commitFilter: CommitFilterSpec = { kind: 'all' };
 
     // Static state of repository
     private workspaceFolder: string;
@@ -244,6 +256,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.repository = repository;
         this.absGitDir = absGitDir;
         this.repoRoot = repoRoot;
+        // Reset any commit selection from a previous repository.
+        this.commitFilter = { kind: 'all' };
 
         // Sort descending by folder depth
         workspaceFolders.sort((a, b) => {
@@ -640,15 +654,45 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (!this.fullDiff && this.mergeBase !== mergeBase) {
                 this.log(`Merge base updated: ${this.mergeBase} -> ${mergeBase}`);
             }
+            // If the comparison identity changed (different merge base or HEAD commit),
+            // any previous commit selection no longer applies; reset to the full comparison.
+            const comparisonChanged = this.mergeBase !== mergeBase || this.headCommit !== headCommit;
+
             this.headLastChecked = headLastChecked;
             this.headName = headName;
             this.headCommit = headCommit;
             this.baseRef = baseRef;
             this.mergeBase = mergeBase;
             this.updateStoredBaseRef(baseRef);
+
+            if (comparisonChanged) {
+                this.commitFilter = { kind: 'all' };
+            }
         } catch (e) {
             throw e;
         }
+    }
+
+    // Computes the set of changed files for the active commit filter.
+    private async computeDiff(): Promise<IDiffStatus[]> {
+        const filter = this.commitFilter;
+        if (filter.kind === 'empty') {
+            return [];
+        }
+        if (filter.kind === 'range') {
+            const rightRef = filter.rightRef ?? null;
+            if (rightRef === null) {
+                // The right side is the working tree: reuse diff-index against the left ref
+                // (this also brings in untracked files when comparing against HEAD).
+                return diffIndex(this.repository!, filter.leftRef!, this.refreshIndex, this.findRenames,
+                    this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
+            }
+            return diffTrees(this.repository!, filter.leftRef!, rightRef, this.findRenames,
+                this.renameThreshold, this.showDiffStats);
+        }
+        // 'all': the full comparison, working tree vs base.
+        return diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames,
+            this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
     }
 
     @throttle
@@ -660,7 +704,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
+        const diff = await this.computeDiff();
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
@@ -673,6 +717,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             if (fireChangeEvents) {
                 this.fireTreeDataChange();
             }
+            this._onDidChangeComparison.fire();
             return;
         }
 
@@ -808,6 +853,144 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             this.log('Refreshing tree')
             this.fireTreeDataChange();
         }
+
+        // Let the commits list know the comparison may have changed (new commits, updated
+        // uncommitted summary, etc.).
+        this._onDidChangeComparison.fire();
+    }
+
+    // --- ComparisonHost implementation (consumed by the commits list) ---
+
+    getComparison(): ComparisonInfo | undefined {
+        if (!this.repository || !this.baseRef) {
+            return undefined;
+        }
+        return {
+            repoRoot: this.repoRoot,
+            mergeBase: this.mergeBase,
+            headCommit: this.headCommit,
+        };
+    }
+
+    async getBranchCommits(): Promise<ICommitInfo[]> {
+        if (!this.repository) {
+            return [];
+        }
+        return gitGetBranchCommits(this.repository, this.mergeBase, this.headCommit);
+    }
+
+    async getUncommittedSummary(): Promise<IUncommittedSummary> {
+        if (!this.repository) {
+            return { fileCount: 0, insertions: 0, deletions: 0 };
+        }
+        return gitGetUncommittedSummary(this.repository, this.omitUntrackedFiles);
+    }
+
+    async setCommitFilter(spec: CommitFilterSpec): Promise<void> {
+        if (commitFilterSpecEquals(this.commitFilter, spec)) {
+            return;
+        }
+        this.commitFilter = spec;
+        try {
+            await this.updateDiff(false);
+        } catch (e: any) {
+            this.log('Updating the diff for the commit selection failed', e);
+            window.showErrorMessage(`Updating the diff failed: ${e.message}`);
+        }
+        this.fireTreeDataChange();
+        // Keep a currently visible diff in sync with the new selection.
+        await this.refreshActiveDiff();
+    }
+
+    // If the active editor is a diff we opened for a file that is still part of the
+    // current selection, re-open it so it reflects the newly selected commit(s).
+    private async refreshActiveDiff(): Promise<void> {
+        const tab = window.tabGroups.activeTabGroup?.activeTab;
+        if (!tab || !(tab.input instanceof TabInputTextDiff)) {
+            return;
+        }
+        // Only update a preview tab: re-opening replaces it in place. Pinned/non-preview
+        // diffs are left as the user explicitly kept them (and can't be replaced cleanly).
+        if (!tab.isPreview) {
+            return;
+        }
+        const input = tab.input;
+        // Only act on diffs produced by this extension (the left side is a git: URI).
+        if (input.original.scheme !== 'git') {
+            return;
+        }
+        const dstAbsPath = this.uriToAbsPath(input.modified);
+        if (!dstAbsPath) {
+            return;
+        }
+        const diffStatus = this.getDiffStatusForPath(dstAbsPath);
+        if (!diffStatus) {
+            // File is not part of the current selection; leave the existing diff untouched.
+            return;
+        }
+
+        // Remember the current scroll position (top visible line) so we can restore it
+        // after re-opening with the new commit's content.
+        const oldUris = new Set([input.original.toString(), input.modified.toString()]);
+        const prevEditor = window.visibleTextEditors.find(e => oldUris.has(e.document.uri.toString()));
+        const anchorLine = prevEditor?.visibleRanges[0]?.start.line;
+
+        const showOptions: TextDocumentShowOptions = { viewColumn: tab.group.viewColumn, preserveFocus: true };
+        if (anchorLine !== undefined) {
+            // Positions the re-opened diff near the previous location during the open itself.
+            showOptions.selection = new Range(anchorLine, 0, anchorLine, 0);
+        }
+
+        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status, true, showOptions);
+
+        if (anchorLine === undefined) {
+            return;
+        }
+
+        // Refine: pin the previous top line to the top of the viewport.
+        const { leftRef, rightRef } = this.getDiffEndpoints();
+        const newUris = new Set<string>([
+            (rightRef === null ? Uri.file(diffStatus.dstAbsPath) : this.gitApi.toGitUri(Uri.file(diffStatus.dstAbsPath), rightRef)).toString(),
+            this.gitApi.toGitUri(Uri.file(diffStatus.srcAbsPath), leftRef).toString(),
+        ]);
+        const newEditor = window.visibleTextEditors.find(e => newUris.has(e.document.uri.toString()));
+        if (newEditor) {
+            const line = Math.min(anchorLine, Math.max(0, newEditor.document.lineCount - 1));
+            newEditor.revealRange(new Range(line, 0, line, 0), TextEditorRevealType.AtTop);
+        }
+    }
+
+    private uriToAbsPath(uri: Uri): string | undefined {
+        if (uri.scheme === 'file') {
+            return uri.fsPath;
+        }
+        if (uri.scheme === 'git') {
+            try {
+                const params = JSON.parse(uri.query);
+                if (params && typeof params.path === 'string') {
+                    return params.path;
+                }
+            } catch {
+                // not a git URI we can interpret
+            }
+        }
+        return undefined;
+    }
+
+    private getDiffStatusForPath(dstAbsPath: string): IDiffStatus | undefined {
+        const folder = path.dirname(dstAbsPath);
+        const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
+        const files = isInsideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
+        return files.get(folder)?.find(file => file.dstAbsPath === dstAbsPath);
+    }
+
+    // Resolves the two endpoints used when opening a file's changes, based on the
+    // active commit filter. `rightRef === null` means the working tree.
+    private getDiffEndpoints(): { leftRef: string, rightRef: string | null } {
+        if (this.commitFilter.kind === 'range') {
+            return { leftRef: this.commitFilter.leftRef!, rightRef: this.commitFilter.rightRef ?? null };
+        }
+        return { leftRef: this.mergeBase, rightRef: null };
     }
 
     private async isHeadChanged() {
@@ -1167,23 +1350,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
     }
 
-    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
-        const right = Uri.file(dstAbsPath);
-        const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
+    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true, showOptions: TextDocumentShowOptions = {}) {
+        const { leftRef, rightRef } = this.getDiffEndpoints();
+        const right = rightRef === null ? Uri.file(dstAbsPath) : this.gitApi.toGitUri(Uri.file(dstAbsPath), rightRef);
+        const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), leftRef);
+
+        const options: TextDocumentShowOptions = { preview, ...showOptions };
 
         if (status === 'U' || status === 'A') {
-            return commands.executeCommand('vscode.open', right);
+            return commands.executeCommand('vscode.open', right, options);
         }
         if (status === 'D') {
-            return commands.executeCommand('vscode.open', left);
+            return commands.executeCommand('vscode.open', left, options);
         }
 
-        const options: TextDocumentShowOptions = {
-            preview: preview
-        };
         const filename = path.basename(dstAbsPath);
+        const rightLabel = rightRef === null ? 'Working Tree' : rightRef.substr(0, 7);
         return await commands.executeCommand('vscode.diff',
-            left, right, filename + " (Working Tree)", options);
+            left, right, `${filename} (${rightLabel})`, options);
     }
 
     openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
@@ -1203,8 +1387,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async doOpenFile(dstAbsPath: string, status: StatusCode, preview=false) {
-        const right = Uri.file(dstAbsPath);
-        const left = this.gitApi.toGitUri(right, this.mergeBase);
+        const { leftRef, rightRef } = this.getDiffEndpoints();
+        const right = rightRef === null ? Uri.file(dstAbsPath) : this.gitApi.toGitUri(Uri.file(dstAbsPath), rightRef);
+        const left = this.gitApi.toGitUri(Uri.file(dstAbsPath), leftRef);
         const uri = status === 'D' ? left : right;
         const options: TextDocumentShowOptions = {
             preview: preview
@@ -1213,6 +1398,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async discardChanges(entries: (FileElement | FolderElement)[]) {
+        if (this.commitFilter.kind !== 'all') {
+            window.showInformationMessage('Discarding changes is only available in the full comparison. Select all commits first.');
+            return;
+        }
         let statuses: IDiffStatus[] = [];
         for (const entry of entries) {
             if (entry instanceof FolderElement) {
@@ -1228,6 +1417,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async discardAllChanges() {
+        if (this.commitFilter.kind !== 'all') {
+            window.showInformationMessage('Discarding changes is only available in the full comparison. Select all commits first.');
+            return;
+        }
         const statuses = [...this.iterFiles()];
         await this.doDiscardChanges(statuses);
     }
@@ -1775,9 +1968,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // Calculate relative path from repository root
         const dstRelPath = path.relative(this.repository.root, dstAbsPath);
 
-        // For modified files, use git difftool
-        // Use the mergeBase as the comparison base
-        const args = ['difftool', '--no-prompt', this.mergeBase, '--', dstRelPath];
+        // Use the active comparison endpoints (merge base + working tree by default,
+        // or the selected commit range).
+        const { leftRef, rightRef } = this.getDiffEndpoints();
+        const args = ['difftool', '--no-prompt', leftRef];
+        if (rightRef !== null) {
+            args.push(rightRef);
+        }
+        args.push('--', dstRelPath);
 
         try {
             // Execute git difftool - this will launch the external tool
