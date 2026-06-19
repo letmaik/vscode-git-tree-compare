@@ -12,7 +12,7 @@ import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile } from './gitHelper'
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile , listWorktrees, IWorktreeInfo} from './gitHelper'h
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -238,7 +238,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
         if (workspaceFolders.length == 0) {
-            throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
+            const worktrees = await listWorktrees(repository);                const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
         }
 
         this.repository = repository;
@@ -324,9 +324,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         let repoRoot = repository.rootUri.fsPath;
-        if (!getGitRepositoryFolders(this.gitApi).includes(repoRoot)) {
-            return;
-        }
+const inWorkspace = getGitRepositoryFolders(this.gitApi).includes(repository.rootUri.fsPath);
+		        if (!inWorkspace) {
+					            const worktrees = this.repository ? await listWorktrees(this.repository) : [];
+					            if (!worktrees.some(wt => wt.path === repoRoot)) {
+									                return;
+								}
+				}
         repoRoot = normalizePath(repoRoot);
         if (repoRoot === this.workspaceFolder) {
             return;
