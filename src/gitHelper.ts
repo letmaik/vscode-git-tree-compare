@@ -40,6 +40,38 @@ export function getGitRepositoryFolders(git: GitAPI, selectedFirst=false): strin
     return rootPaths;
 }
 
+export interface IWorktreeInfo {
+        path: string;
+        head: string;
+        branch: string | undefined;
+}
+export async function listWorktrees(repo: Repository): Promise<IWorktreeInfo[]> {
+        const result = await repo.exec(['worktree', 'list', '--porcelain']);
+        const worktrees: IWorktreeInfo[] = [];
+        let currentPath: string | undefined;
+        let currentHead: string | undefined;
+        let currentBranch: string | undefined;
+
+        const flush = () => {
+                    if (currentPath && currentHead) {
+                                    worktrees.push({ path: normalizePath(currentPath), head: currentHead, branch: currentBranch });
+                    }
+                    currentPath = currentHead = currentBranch = undefined;
+        };
+
+        for (const line of result.stdout.split('\n')) {
+                    if (line.startsWith('worktree ')) {
+                                    flush();
+                                    currentPath = line.slice('worktree '.length);
+                    } else if (line.startsWith('HEAD ')) {
+                                    currentHead = line.slice('HEAD '.length);
+                    } else if (line.startsWith('branch refs/heads/')) {
+                                    currentBranch = line.slice('branch refs/heads/'.length);
+                    }
+        }
+        flush(); // flush the last entry
+        return worktrees;
+}
 export async function getAbsGitDir(repo: Repository): Promise<string> {
     // We don't use --absolute-git-dir here as that requires git >= 2.13.
     let res = await repo.exec(['rev-parse', '--git-dir']);
