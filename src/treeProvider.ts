@@ -5,14 +5,14 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor, RelativePattern } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile , listWorktrees, IWorktreeInfo} from './gitHelper'
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile, listWorktrees } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -178,6 +178,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     // Other
     private readonly disposables: Disposable[] = [];
+    private extraRepositoryWatcher: Disposable | undefined;
 
     constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
                 private readonly asAbsolutePath: (relPath: string) => string) {
@@ -237,9 +238,14 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const repoRoot = normalizePath(repository.root);
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
-        if (workspaceFolders.length == 0) {
+        const outsideWorkspace = workspaceFolders.length == 0;
+        if (outsideWorkspace) {
             const worktrees = await listWorktrees(repository);
-			const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
+            const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
+            if (!isLinkedWorktree) {
+                throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
+            }
+            workspaceFolders.push({ uri: Uri.file(repoRoot), name: path.basename(repoRoot), index: 0 });
         }
 
         this.repository = repository;
@@ -257,6 +263,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
         this.updateTreeRootFolder();
         this.log('Using repository: ' + this.repoRoot);
+        this.updateExtraRepositoryWatcher(outsideWorkspace);
 
         this.updateTreeTitle();
     }
@@ -276,6 +283,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     async unsetRepository() {
         this.repository = undefined;
+        this.updateExtraRepositoryWatcher(false);
         this.fireTreeDataChange();
         this.log('No repository selected');
 
@@ -324,20 +332,42 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (!this.autoChangeRepository || !repository.ui.selected) {
             return;
         }
-        let repoRoot = repository.rootUri.fsPath;
-		const inWorkspace = getGitRepositoryFolders(this.gitApi).includes(repository.rootUri.fsPath);
-			if (!inWorkspace) {
-				const worktrees = this.repository ? await listWorktrees(this.repository) : [];
-				if (!worktrees.some(wt => wt.path === repoRoot)) {
-					return;
-				}
-			}
-        repoRoot = normalizePath(repoRoot);
-        if (repoRoot === this.workspaceFolder) {
+        const repoRoot = normalizePath(repository.rootUri.fsPath);
+        const inWorkspace = getGitRepositoryFolders(this.gitApi).map(normalizePath).includes(repoRoot);
+        if (!inWorkspace) {
+            const worktrees = this.repository ? await listWorktrees(this.repository) : [];
+            if (!worktrees.some(wt => wt.path === repoRoot)) {
+                return;
+            }
+        }
+        if (repoRoot === this.repoRoot) {
             return;
         }
         this.log(`SCM repository change detected - changing repository: ${repoRoot}`);
         await this.changeRepository(repoRoot);
+    }
+
+    private updateExtraRepositoryWatcher(enabled: boolean) {
+        this.extraRepositoryWatcher?.dispose();
+        this.extraRepositoryWatcher = undefined;
+
+        if (!enabled) {
+            return;
+        }
+
+        const watchers = [
+            workspace.createFileSystemWatcher(new RelativePattern(Uri.file(this.repoRoot), '**')),
+        ];
+        const normalizedGitDir = normalizePath(this.absGitDir);
+        if (normalizedGitDir !== this.repoRoot && !normalizedGitDir.startsWith(this.repoRoot + path.sep)) {
+            watchers.push(workspace.createFileSystemWatcher(new RelativePattern(Uri.file(this.absGitDir), '**')));
+        }
+
+        const subscriptions = watchers.map(watcher => {
+            const onWorkspaceChange = anyEvent(watcher.onDidChange, watcher.onDidCreate, watcher.onDidDelete);
+            return onWorkspaceChange(this.handleWorkspaceChange, this);
+        });
+        this.extraRepositoryWatcher = Disposable.from(...watchers, ...subscriptions);
     }
 
     private async handleWorkspaceFoldersChanged(e: WorkspaceFoldersChangeEvent) {
@@ -844,7 +874,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // ignore changes outside of repo root
         //  e.g. "c:\Users\..\AppData\Roaming\Code - Insiders\User\globalStorage"
         const normPath = normalizePath(uri.fsPath);
-        if (!normPath.startsWith(this.repoRoot + path.sep)) {
+        const normalizedGitDir = normalizePath(this.absGitDir);
+        if (!normPath.startsWith(this.repoRoot + path.sep) && !normPath.startsWith(normalizedGitDir + path.sep)) {
             this.log(`Ignoring change outside of repository: ${uri.fsPath}`)
             return
         }
@@ -1803,6 +1834,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     dispose(): void {
+        this.extraRepositoryWatcher?.dispose();
         this.disposables.forEach(d => d.dispose());
     }
 }
