@@ -12,7 +12,7 @@ import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile , listWorktrees, IWorktreeInfo} from './gitHelper'h
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile , listWorktrees, IWorktreeInfo} from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
@@ -238,7 +238,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
         if (workspaceFolders.length == 0) {
-            const worktrees = await listWorktrees(repository);                const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
+            const worktrees = await listWorktrees(repository);
+			const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
         }
 
         this.repository = repository;
@@ -324,13 +325,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         let repoRoot = repository.rootUri.fsPath;
-const inWorkspace = getGitRepositoryFolders(this.gitApi).includes(repository.rootUri.fsPath);
-		        if (!inWorkspace) {
-					            const worktrees = this.repository ? await listWorktrees(this.repository) : [];
-					            if (!worktrees.some(wt => wt.path === repoRoot)) {
-									                return;
-								}
+		const inWorkspace = getGitRepositoryFolders(this.gitApi).includes(repository.rootUri.fsPath);
+			if (!inWorkspace) {
+				const worktrees = this.repository ? await listWorktrees(this.repository) : [];
+				if (!worktrees.some(wt => wt.path === repoRoot)) {
+					return;
 				}
+			}
         repoRoot = normalizePath(repoRoot);
         if (repoRoot === this.workspaceFolder) {
             return;
