@@ -205,6 +205,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private elementMap: Map<string, FileElement> = new Map();
     private pendingRefreshRepositories = new Map<string, Uri>();
     private pendingRefreshTimer: NodeJS.Timeout | undefined;
+    // Incremented on each "Collapse All". Changing folder ids makes VS Code
+    // apply their collapsed state instead of restoring their previous state.
+    // The ref keeps its stable id and remains expanded.
+    private collapseGeneration = 0;
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -721,7 +725,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 checkboxState = this.computeFolderCheckboxState(element);
             }
         }
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
+        const item = toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
+        if (this.collapseGeneration > 0 && element instanceof FolderElement) {
+            item.collapsibleState = TreeItemCollapsibleState.Collapsed;
+            item.id = element.dstAbsPath + '#c' + this.collapseGeneration;
+        }
+        return item;
     }
 
     getParent(element: Element): Element | undefined {
@@ -2082,6 +2091,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     async sortByRecentlyModified() {
         const config = workspace.getConfiguration(NAMESPACE);
         await config.update('sortOrder', 'recentlyModified', true);
+    }
+
+    async collapseAll() {
+        this.collapseGeneration++;
+        this.fireTreeDataChange();
     }
 
     async searchChanges(entry?: RefElement | RepositoryElement) {
