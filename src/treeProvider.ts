@@ -1852,8 +1852,10 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const statsText = showDiffStats && element.stats ? formatDiffStats(element.stats) : '';
         const displayLabel = statsText ? `${element.label}  ${statsText}` : element.label;
         const item = new TreeItem(displayLabel);
-        const statusText = getStatusText(element.status);
-        item.tooltip = `${element.dstAbsPath} • ${statusText}`;
+        // In fileTheme mode the status is already shown via the file decoration
+        // tooltip, so avoid mentioning it twice.
+        const statusText = iconStyle === 'fileTheme' ? '' : getStatusText(element.status);
+        item.tooltip = statusText ? `${element.dstAbsPath} • ${statusText}` : element.dstAbsPath;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
         }
