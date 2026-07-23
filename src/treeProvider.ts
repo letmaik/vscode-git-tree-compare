@@ -201,30 +201,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
         }
 
-        const isRelevantChange = (uri: Uri) => {
-            if (uri.scheme != 'file') {
-                return false;
-            }
-            // non-git change
-            if (!/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path)) {
-                return true;
-            }
-            // git ref change
-            if (/\/\.git\/refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path)) {
-                return true;
-            }
-            // git index change
-            if (/\/\.git\/index$/.test(uri.path)) {
-                return true;
-            }
-            this.log(`Ignoring irrelevant change: ${uri.fsPath}`);
-            return false;
-        }
-
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
         const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
-        const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, isRelevantChange);
+        const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, uri => this.isRelevantChange(uri));
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
 
         this.disposables.push(treeView.onDidChangeCheckboxState(this.handleChangeCheckboxState, this));
@@ -347,6 +327,30 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await this.changeRepository(repoRoot);
     }
 
+    private isRelevantChange(uri: Uri): boolean {
+        if (uri.scheme != 'file') {
+            return false;
+        }
+        // non-git change
+        if (!/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path)) {
+            return true;
+        }
+        // git ref change (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path)) {
+            return true;
+        }
+        // git HEAD change, e.g. on branch switch (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?HEAD$/.test(uri.path)) {
+            return true;
+        }
+        // git index change (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?index$/.test(uri.path)) {
+            return true;
+        }
+        this.log(`Ignoring irrelevant change: ${uri.fsPath}`);
+        return false;
+    }
+
     private updateExtraRepositoryWatcher(enabled: boolean) {
         this.extraRepositoryWatcher?.dispose();
         this.extraRepositoryWatcher = undefined;
@@ -365,7 +369,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         const subscriptions = watchers.map(watcher => {
             const onWorkspaceChange = anyEvent(watcher.onDidChange, watcher.onDidCreate, watcher.onDidDelete);
-            return onWorkspaceChange(this.handleWorkspaceChange, this);
+            const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, uri => this.isRelevantChange(uri));
+            return onRelevantWorkspaceChange(this.handleWorkspaceChange, this);
         });
         this.extraRepositoryWatcher = Disposable.from(...watchers, ...subscriptions);
     }
