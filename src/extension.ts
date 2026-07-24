@@ -103,6 +103,9 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.searchChanges', () => {
         runAfterInit(() => provider!.searchChanges());
     });
+    commands.registerCommand(NAMESPACE + '.collapseAll', () => {
+        runAfterInit(() => provider!.collapseAll());
+    });
     commands.registerCommand(NAMESPACE + '.filterFiles', () => {
         runAfterInit(() => provider!.filterFiles());
     });
