@@ -1,10 +1,11 @@
 import {
     TreeDataProvider, TreeItem, TreeItemCollapsibleState, EventEmitter, Event,
     Disposable, TreeItemCheckboxState, TreeCheckboxChangeEvent, TreeView, ThemeIcon,
-    OutputChannel, MarkdownString
+    OutputChannel, MarkdownString, window
 } from 'vscode';
 
 import { ICommitInfo, IUncommittedSummary, EMPTY_TREE_ID } from './gitHelper';
+import { debounce } from './git/decorators';
 
 /**
  * Describes which diff the main tree should display, derived from the set of
@@ -39,7 +40,14 @@ export interface ComparisonInfo {
  */
 export interface ComparisonHost {
     readonly onDidChangeComparison: Event<void>;
+    // Fired when a relevant working-tree/refs change is detected, independent of whether
+    // the main tree is currently visible. Used to auto-refresh the commits list.
+    readonly onDidChangeRepository: Event<void>;
     getComparison(): ComparisonInfo | undefined;
+    // Updates the cached comparison refs (merge base / HEAD) from git without recomputing
+    // the full file diff. Must be called before reading getComparison() on auto-refresh so
+    // the commits list picks up new commits even while the main tree is hidden.
+    refreshComparison(): Promise<void>;
     getBranchCommits(): Promise<ICommitInfo[]>;
     getUncommittedSummary(): Promise<IUncommittedSummary>;
     setCommitFilter(spec: CommitFilterSpec): Promise<void>;
@@ -86,17 +94,47 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
     // Identifies the current comparison; used to detect when the commit set changed.
     private commitSetKey = '';
 
+    // The view backing this provider; used to gate auto-refresh on visibility.
+    private treeView: TreeView<CommitListElement> | undefined;
+
     private readonly disposables: Disposable[] = [];
 
     constructor(private readonly host: ComparisonHost, private readonly outputChannel: OutputChannel) {
         this.disposables.push(this.host.onDidChangeComparison(() => {
             this.refresh().catch(e => this.log('Failed to refresh commits list', e));
         }));
+        this.disposables.push(this.host.onDidChangeRepository(() => this.scheduleAutoRefresh()));
     }
 
     init(treeView: TreeView<CommitListElement>) {
+        this.treeView = treeView;
         this.disposables.push(treeView.onDidChangeCheckboxState(this.handleCheckboxChange, this));
+        // Refresh when the view becomes visible again to catch up on changes that
+        // happened while it was hidden.
+        this.disposables.push(treeView.onDidChangeVisibility(e => {
+            if (e.visible) {
+                this.autoRefresh().catch(err => this.log('Failed to refresh commits list on show', err));
+            }
+        }));
         this.refresh().catch(e => this.log('Failed to initialise commits list', e));
+    }
+
+    // Debounced auto-refresh triggered by repository changes. Skips work when the
+    // window is unfocused or the view is hidden; the visibility handler refreshes
+    // once the view is shown again.
+    @debounce(2000)
+    private scheduleAutoRefresh() {
+        this.autoRefresh().catch(e => this.log('Failed to auto-refresh commits list', e));
+    }
+
+    // Brings the comparison refs up to date (so new commits are picked up) and then
+    // refreshes the list, but only while the window is focused and the view is visible.
+    private async autoRefresh(): Promise<void> {
+        if (!window.state.focused || !(this.treeView?.visible ?? false)) {
+            return;
+        }
+        await this.host.refreshComparison();
+        await this.refresh();
     }
 
     private log(msg: string, error?: unknown) {
@@ -141,6 +179,32 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         }
     }
 
+    // The list is a single vertical timeline: the "Uncommitted Changes" entry sits
+    // on top (newest), followed by the commits newest-first. A selection always maps
+    // to a contiguous range of this timeline, so the ids are ordered accordingly.
+    private orderedIds(): string[] {
+        return [UNCOMMITTED_ID, ...this.commits.map(c => c.hash)];
+    }
+
+    // Snaps the current selection to a contiguous block: everything between the
+    // topmost and bottommost checked entry becomes checked, everything outside
+    // becomes unchecked. This keeps the checkboxes honest about the range that is
+    // actually diffed (intermediate commits can't be left out of a range).
+    private enforceContiguousSelection(): void {
+        const ids = this.orderedIds();
+        const checkedIndices = ids
+            .map((id, i) => (this.isChecked(id) ? i : -1))
+            .filter(i => i >= 0);
+        if (checkedIndices.length === 0) {
+            return; // nothing checked -> empty selection, leave as-is
+        }
+        const min = checkedIndices[0];
+        const max = checkedIndices[checkedIndices.length - 1];
+        ids.forEach((id, i) => {
+            this.checked.set(id, i >= min && i <= max);
+        });
+    }
+
     private computeSpec(): CommitFilterSpec {
         const total = this.commits.length + 1; // + uncommitted item
         const checkedCommits = this.commits.filter(c => this.isChecked(c.hash));
@@ -173,6 +237,10 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         for (const [element, state] of e.items) {
             this.checked.set(elementId(element), state === TreeItemCheckboxState.Checked);
         }
+        // Fill any gap so the checkboxes always show one contiguous range, then
+        // refresh the list to reflect the auto-checked entries.
+        this.enforceContiguousSelection();
+        this._onDidChangeTreeData.fire();
         await this.applyFilter();
     }
 

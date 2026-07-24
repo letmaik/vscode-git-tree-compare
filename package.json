@@ -63,7 +63,7 @@
                 {
                     "id": "gitTreeCompareCommits",
                     "name": "Commits",
-                    "when": "config.git.enabled && gitOpenRepositoryCount != 0",
+                    "when": "config.git.enabled && gitOpenRepositoryCount != 0 && config.gitTreeCompare.showCommitsPanel",
                     "icon": "./resources/logo.svg",
                     "initialSize": 1
                 }
@@ -257,6 +257,20 @@
             }
         ],
         "menus": {
+            "commandPalette": [
+                {
+                    "command": "gitTreeCompare.commits.selectAll",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                },
+                {
+                    "command": "gitTreeCompare.commits.deselectAll",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                },
+                {
+                    "command": "gitTreeCompare.commits.refresh",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                }
+            ],
             "gitTreeCompare.viewAndSort": [
                 {
                     "command": "gitTreeCompare.viewAsList",
@@ -544,6 +558,11 @@
                 "gitTreeCompare.autoChangeRepository": {
                     "type": "boolean",
                     "description": "[EXPERIMENTAL] Whether to change the active repository whenever a different one is selected in the SCM view. Note that this only works well when not selecting multiple repositories. See GitHub issue #70 for more details.",
+                    "default": false
+                },
+                "gitTreeCompare.showCommitsPanel": {
+                    "type": "boolean",
+                    "description": "Whether to show the \"Commits\" panel below the tree, which lists the commits between the base and HEAD and lets you filter the comparison to a subset of commits.",
                     "default": false
                 },
                 "gitTreeCompare.autoRefresh": {

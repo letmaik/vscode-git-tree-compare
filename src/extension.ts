@@ -1,4 +1,4 @@
-import { ExtensionContext, window, Disposable, commands, extensions } from 'vscode';
+import { ExtensionContext, window, Disposable, commands, extensions, workspace } from 'vscode';
 
 import { NAMESPACE } from './constants'
 import { GitTreeCompareProvider } from './treeProvider';
@@ -167,15 +167,33 @@ export function activate(context: ExtensionContext) {
 
         provider.init(treeView);
 
-        commitsProvider = new CommitsTreeProvider(provider, outputChannel);
-        const commitsTreeView = window.createTreeView(
-            NAMESPACE + 'Commits',
-            {
-                treeDataProvider: commitsProvider,
+        // The "Commits" panel is optional and disabled by default; create/dispose it
+        // according to the gitTreeCompare.showCommitsPanel setting.
+        let commitsDisposables: Disposable[] = [];
+        const updateCommitsPanel = () => {
+            const enabled = workspace.getConfiguration(NAMESPACE).get<boolean>('showCommitsPanel', false);
+            if (enabled && !commitsProvider) {
+                commitsProvider = new CommitsTreeProvider(provider!, outputChannel);
+                const commitsTreeView = window.createTreeView(
+                    NAMESPACE + 'Commits',
+                    {
+                        treeDataProvider: commitsProvider,
+                    }
+                );
+                commitsDisposables.push(commitsTreeView, commitsProvider);
+                commitsProvider.init(commitsTreeView);
+            } else if (!enabled && commitsProvider) {
+                Disposable.from(...commitsDisposables).dispose();
+                commitsDisposables = [];
+                commitsProvider = null;
             }
-        );
-        disposables.push(commitsTreeView);
-        disposables.push(commitsProvider);
-        commitsProvider.init(commitsTreeView);
+        };
+        disposables.push(new Disposable(() => Disposable.from(...commitsDisposables).dispose()));
+        disposables.push(workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration(NAMESPACE + '.showCommitsPanel')) {
+                updateCommitsPanel();
+            }
+        }));
+        updateCommitsPanel();
     });
 }

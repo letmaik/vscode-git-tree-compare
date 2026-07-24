@@ -123,6 +123,13 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private _onDidChangeComparison = new EventEmitter<void>();
     readonly onDidChangeComparison: Event<void> = this._onDidChangeComparison.event;
 
+    // Fired when a relevant change is detected in the repository working tree or refs,
+    // before the (main-tree-visibility-gated) diff recompute. Lets dependents such as the
+    // commits list refresh on their own schedule/visibility instead of piggybacking on the
+    // main tree's update.
+    private _onDidChangeRepository = new EventEmitter<void>();
+    readonly onDidChangeRepository: Event<void> = this._onDidChangeRepository.event;
+
     private fireTreeDataChange() {
         this.parentMap.clear();
         this.elementMap.clear();
@@ -872,6 +879,22 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         };
     }
 
+    // Updates the cached comparison refs from git (merge base / HEAD) without recomputing
+    // the full file diff. Cheap enough to run on the commits list's own refresh schedule,
+    // so it stays current even while the main tree is hidden and its diff recompute is paused.
+    async refreshComparison(): Promise<void> {
+        if (!this.repository) {
+            return;
+        }
+        try {
+            if (await this.isHeadChanged()) {
+                await this.updateRefs(this.baseRef);
+            }
+        } catch (e: any) {
+            this.log('Refreshing the comparison for the commits list failed', e);
+        }
+    }
+
     async getBranchCommits(): Promise<ICommitInfo[]> {
         if (!this.repository) {
             return [];
@@ -1026,6 +1049,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             this.log(`Ignoring change outside of repository: ${uri.fsPath}`)
             return
         }
+        // Notify dependents (e.g. the commits list) about the relevant change before the
+        // visibility pause below, so they can refresh even while the main tree is hidden.
+        this._onDidChangeRepository.fire();
         if (!window.state.focused || !this.treeView.visible) {
             if (this.isPaused) {
                 return;
