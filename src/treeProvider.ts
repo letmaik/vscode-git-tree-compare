@@ -5,7 +5,8 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor, RelativePattern } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor, RelativePattern,
+         FileDecorationProvider, FileDecoration, ProviderResult, ThemeColor } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
@@ -21,8 +22,10 @@ import { Octokit } from '@octokit/rest';
 
 
 type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+type IconStyle = 'status' | 'fileTheme';
 
 const MAX_DIFF_ENTRIES = 10000;
+const TREE_RESOURCE_SCHEME = 'git-tree-compare';
 
 const STATUS_SORT_ORDER: { [key: string]: number } = {
     'M': 0, // Modified
@@ -129,6 +132,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private autoRefresh: boolean;
     private refreshIndex: boolean;
     private iconsMinimal: boolean;
+    private iconStyle: IconStyle;
     private fullDiff: boolean;
     private findRenames: boolean;
     private renameThreshold: number;
@@ -200,6 +204,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
+        this.disposables.push(window.registerFileDecorationProvider(new GitTreeCompareFileDecorationProvider()));
         this.disposables.push(this.gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
         for (const repository of this.gitApi.repositories) {
             this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
@@ -460,6 +465,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
         this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
+        this.iconStyle = config.get<IconStyle>('iconStyle', 'status');
         this.fullDiff = config.get<string>('diffMode') === 'full';
         this.findRenames = config.get<boolean>('findRenames', true);
         this.renameThreshold = config.get<number>('renameThreshold', 50);
@@ -517,7 +523,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 checkboxState = this.computeFolderCheckboxState(element);
             }
         }
-        const item = toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
+        const item = toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.iconStyle, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
         if (this.collapseGeneration > 0 && element instanceof FolderElement) {
             item.collapsibleState = TreeItemCollapsibleState.Collapsed;
             item.id = element.dstAbsPath + '#c' + this.collapseGeneration;
@@ -933,6 +939,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldAutoRefresh = this.autoRefresh;
         const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
+        const oldIconStyle = this.iconStyle;
         const oldFullDiff = this.fullDiff;
         const oldFindRenames = this.findRenames;
         const oldRenameThreshold = this.renameThreshold;
@@ -951,6 +958,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
             oldIconsMinimal != this.iconsMinimal ||
+            oldIconStyle != this.iconStyle ||
             (!oldAutoRefresh && this.autoRefresh) ||
             (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
@@ -1882,8 +1890,17 @@ function formatDiffStats(stats: IDiffStats): string {
     return parts.join(' ');
 }
 
+class GitTreeCompareFileDecorationProvider implements FileDecorationProvider {
+    provideFileDecoration(uri: Uri): ProviderResult<FileDecoration> {
+        if (uri.scheme !== TREE_RESOURCE_SCHEME || !isStatusCode(uri.query)) {
+            return undefined;
+        }
+        return new FileDecoration(undefined, getStatusText(uri.query), getStatusColor(uri.query));
+    }
+}
+
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
-                    showCollapsed: boolean, viewAsList: boolean, showDiffStats: boolean,
+                    iconStyle: IconStyle, showCollapsed: boolean, viewAsList: boolean, showDiffStats: boolean,
                     checkboxState: TreeItemCheckboxState | undefined,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
@@ -1891,8 +1908,10 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const statsText = showDiffStats && element.stats ? formatDiffStats(element.stats) : '';
         const displayLabel = statsText ? `${element.label}  ${statsText}` : element.label;
         const item = new TreeItem(displayLabel);
-        const statusText = getStatusText(element);
-        item.tooltip = `${element.dstAbsPath} • ${statusText}`;
+        // In fileTheme mode the status is already shown via the file decoration
+        // tooltip, so avoid mentioning it twice.
+        const statusText = iconStyle === 'fileTheme' ? '' : getStatusText(element.status);
+        item.tooltip = statusText ? `${element.dstAbsPath} • ${statusText}` : element.dstAbsPath;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
         }
@@ -1907,7 +1926,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
         item.id = element.dstAbsPath;
-        item.iconPath = path.join(gitIconRoot,	toIconName(element) + '.svg');
+        if (iconStyle === 'fileTheme') {
+            item.resourceUri = toTreeResourceUri(element.dstAbsPath, element.status);
+            item.iconPath = ThemeIcon.File;
+        } else {
+            item.iconPath = path.join(gitIconRoot, toIconName(element.status) + '.svg');
+        }
         if (checkboxState !== undefined) {
             item.checkboxState = checkboxState;
         }
@@ -1926,7 +1950,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = 'root';
         item.id = 'root'
         if (!iconsMinimal) {
-            item.iconPath = new ThemeIcon('folder-opened');
+            if (iconStyle === 'fileTheme') {
+                item.resourceUri = toTreeResourceUri(element.dstAbsPath);
+                item.iconPath = ThemeIcon.Folder;
+            } else {
+                item.iconPath = new ThemeIcon('folder-opened');
+            }
         }
         return item;
     } else if (element instanceof FolderElement) {
@@ -1938,7 +1967,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
             item.checkboxState = checkboxState;
         }
         if (!iconsMinimal) {
-            item.iconPath = new ThemeIcon('folder-opened');
+            if (iconStyle === 'fileTheme') {
+                item.resourceUri = toTreeResourceUri(element.dstAbsPath);
+                item.iconPath = ThemeIcon.Folder;
+            } else {
+                item.iconPath = new ThemeIcon('folder-opened');
+            }
         }
         return item;
     } else if (element instanceof RefElement) {
@@ -1956,8 +1990,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     throw new Error('unsupported element type');
 }
 
-function toIconName(element: FileElement) {
-    switch(element.status) {
+function toTreeResourceUri(absPath: string, status?: StatusCode): Uri {
+    return Uri.file(absPath).with({ scheme: TREE_RESOURCE_SCHEME, query: status });
+}
+
+function toIconName(status: StatusCode) {
+    switch(status) {
         case 'U': return 'status-untracked';
         case 'A': return 'status-added';
         case 'D': return 'status-deleted';
@@ -1968,8 +2006,12 @@ function toIconName(element: FileElement) {
     }
 }
 
-function getStatusText(element: FileElement) {
-    switch(element.status) {
+function isStatusCode(status: string): status is StatusCode {
+    return status === 'U' || status === 'A' || status === 'D' || status === 'M' || status === 'C' || status === 'T' || status === 'R';
+}
+
+function getStatusText(status: StatusCode) {
+    switch(status) {
         case 'U': return 'Untracked';
         case 'A': return 'Added';
         case 'D': return 'Deleted';
@@ -1977,6 +2019,18 @@ function getStatusText(element: FileElement) {
         case 'C': return 'Conflict';
         case 'T': return 'Type changed';
         case 'R': return 'Renamed';
+    }
+}
+
+function getStatusColor(status: StatusCode): ThemeColor {
+    switch(status) {
+        case 'U': return new ThemeColor('gitDecoration.untrackedResourceForeground');
+        case 'A': return new ThemeColor('gitDecoration.addedResourceForeground');
+        case 'D': return new ThemeColor('gitDecoration.deletedResourceForeground');
+        case 'M': return new ThemeColor('gitDecoration.modifiedResourceForeground');
+        case 'C': return new ThemeColor('gitDecoration.conflictingResourceForeground');
+        case 'T': return new ThemeColor('gitDecoration.modifiedResourceForeground');
+        case 'R': return new ThemeColor('gitDecoration.renamedResourceForeground');
     }
 }
 
