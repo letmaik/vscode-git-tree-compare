@@ -2024,12 +2024,12 @@ function getStatusText(status: StatusCode) {
 
 function getStatusColor(status: StatusCode): ThemeColor {
     switch(status) {
-        case 'U': return new ThemeColor('descriptionForeground');
+        case 'U': return new ThemeColor('gitDecoration.untrackedResourceForeground');
         case 'A': return new ThemeColor('gitDecoration.addedResourceForeground');
         case 'D': return new ThemeColor('gitDecoration.deletedResourceForeground');
-        case 'M': return new ThemeColor('charts.blue');
+        case 'M': return new ThemeColor('gitDecoration.modifiedResourceForeground');
         case 'C': return new ThemeColor('gitDecoration.conflictingResourceForeground');
-        case 'T': return new ThemeColor('charts.blue');
+        case 'T': return new ThemeColor('gitDecoration.modifiedResourceForeground');
         case 'R': return new ThemeColor('gitDecoration.renamedResourceForeground');
     }
 }
