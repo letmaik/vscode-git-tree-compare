@@ -619,6 +619,19 @@
           "description": "Whether to use a compact icon alignment (like Seti file icon theme) where only files have icons.",
           "default": false
         },
+        "gitTreeCompare.iconStyle": {
+          "type": "string",
+          "description": "Which icon style to use for files in the compare tree.",
+          "enum": [
+            "status",
+            "fileTheme"
+          ],
+          "enumDescriptions": [
+            "Use the extension's git status icons for files.",
+            "Use VS Code file theme icons and color file labels by git status."
+          ],
+          "default": "status"
+        },
         "gitTreeCompare.collapsed": {
           "type": "boolean",
           "description": "Whether to show folders collapsed instead of expanded. NOTE: A restart is required when changing this setting.",
