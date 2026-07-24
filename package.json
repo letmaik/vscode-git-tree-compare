@@ -175,6 +175,12 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.collapseAll",
+                "title": "Collapse All",
+                "icon": "$(collapse-all)",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.filterFiles",
                 "title": "Filter Files",
                 "icon": "$(filter)",
@@ -401,6 +407,11 @@
                     "command": "gitTreeCompare.clearFilter",
                     "when": "view == gitTreeCompare && gitTreeCompare.isFiltered",
                     "group": "navigation@5"
+                },
+                {
+                    "command": "gitTreeCompare.collapseAll",
+                    "when": "view == gitTreeCompare",
+                    "group": "navigation@6"
                 },
                 {
                     "submenu": "gitTreeCompare.viewAndSort",
