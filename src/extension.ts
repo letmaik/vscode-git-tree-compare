@@ -149,6 +149,7 @@ export function activate(context: ExtensionContext) {
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
         commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
+        commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
@@ -160,6 +161,10 @@ export function activate(context: ExtensionContext) {
             }
         );
 
-        provider.init(treeView);
+        disposables.push(provider, treeView);
+        void provider.init(treeView).catch(error => {
+            outputChannel.appendLine(`Initializing Git Tree Compare failed: ${error.message}`);
+            window.showErrorMessage(`Initializing Git Tree Compare failed: ${error.message}`);
+        });
     });
 }
