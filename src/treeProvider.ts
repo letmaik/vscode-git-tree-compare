@@ -12,7 +12,7 @@ import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
+         getDiffStatuses, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile, listWorktrees } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { debounce, throttle } from './git/decorators'
@@ -715,7 +715,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
+        const diff = await getDiffStatuses(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
