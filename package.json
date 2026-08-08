@@ -579,9 +579,9 @@
                     ],
                     "enumDescriptions": [
                         "Use the extension's git status icons for files.",
-                        "Use VS Code file theme icons and color file labels by git status."
+                        "Use VS Code file theme icons and show git status with file decorations."
                     ],
-                    "description": "Which icon style to use for files in the compare tree.",
+                    "description": "Which icon style to use for files in the compare tree. File theme icons show Git status through file decorations.",
                     "default": "status"
                 },
                 "gitTreeCompare.collapsed": {
