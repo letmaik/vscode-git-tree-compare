@@ -1569,6 +1569,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const headRepoUrl = headRepo.clone_url;
                 const isFork = headRepo.full_name !== pr.base.repo.full_name;
 
+                // Find which local remote points to the base repo (may not be 'origin')
+                const baseCloneUrl = pr.base.repo.clone_url;
+                const baseSshUrl = pr.base.repo.ssh_url;
+                const normalizeRemoteUrl = (u: string) => u.toLowerCase().replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+                const baseRemoteName = repository.remotes.find(r => {
+                    const url = normalizeRemoteUrl(r.fetchUrl || r.pushUrl || '');
+                    return url === normalizeRemoteUrl(baseCloneUrl) || url === normalizeRemoteUrl(baseSshUrl);
+                })?.name ?? 'origin';
+
                 // Extract head owner for branch naming
                 const headOwner = pr.head.user?.login || pr.head.repo?.owner.login;
                 if (!headOwner) {
@@ -1618,17 +1627,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         this.log(`Created local branch ${localBranchName} tracking ${forkRemoteName}/${headRef}`);
                     } else {
                         // For same repo, use GitHub's pull/<id>/head refspec
-                        this.log(`Fetching PR #${prNumber} from origin`);
-                        await repository.exec(['fetch', 'origin', `pull/${prNumber}/head:${localBranchName}`]);
+                        this.log(`Fetching PR #${prNumber} from ${baseRemoteName}`);
+                        await repository.exec(['fetch', baseRemoteName, `pull/${prNumber}/head:${localBranchName}`]);
                         
-                        // Set upstream to origin/<headRef> if the branch exists there
+                        // Set upstream to <remote>/<headRef> if the branch exists there
                         try {
                             // Fetch the actual head ref to update the remote tracking branch
-                            await repository.fetch({ remote: 'origin', ref: headRef });
-                            await repository.exec(['branch', '--set-upstream-to', `origin/${headRef}`, localBranchName]);
-                            this.log(`Created local branch ${localBranchName} tracking origin/${headRef}`);
+                            await repository.fetch({ remote: baseRemoteName, ref: headRef });
+                            await repository.exec(['branch', '--set-upstream-to', `${baseRemoteName}/${headRef}`, localBranchName]);
+                            this.log(`Created local branch ${localBranchName} tracking ${baseRemoteName}/${headRef}`);
                         } catch {
-                            this.log(`Created local branch ${localBranchName} (no upstream - origin/${headRef} not found)`);
+                            this.log(`Created local branch ${localBranchName} (no upstream - ${baseRemoteName}/${headRef} not found)`);
                         }
                     }
                 } catch (e: any) {
