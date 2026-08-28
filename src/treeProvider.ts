@@ -1573,7 +1573,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const baseCloneUrl = pr.base.repo.clone_url;
                 const baseSshUrl = pr.base.repo.ssh_url;
                 const normalizeRemoteUrl = (u: string) => u.toLowerCase().replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
-                const baseRemoteName = repository.remotes.find(r => {
+                const remotes = await repository.getRemotes();
+                const baseRemoteName = remotes.find(r => {
                     const url = normalizeRemoteUrl(r.fetchUrl || r.pushUrl || '');
                     return url === normalizeRemoteUrl(baseCloneUrl) || url === normalizeRemoteUrl(baseSshUrl);
                 })?.name ?? 'origin';
