@@ -1220,7 +1220,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
     }
 
-    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode) {
         const right = Uri.file(dstAbsPath);
         const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
 
@@ -1232,17 +1232,38 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         const options: TextDocumentShowOptions = {
-            preview: preview
+            preview: true
         };
         const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
     }
 
-    openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
+    async openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
+        const resources: [Uri, Uri | undefined, Uri | undefined][] = [];
+
         for (const file of this.iterFiles(withinFolder)) {
-            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, false);
+            const right = Uri.file(file.dstAbsPath);
+            const left = this.gitApi.toGitUri(Uri.file(file.srcAbsPath), this.mergeBase);
+
+            if (file.status === 'A' || file.status === 'U') {
+                resources.push([right, undefined, right]);
+            } else if (file.status === 'D') {
+                resources.push([Uri.file(file.srcAbsPath), left, undefined]);
+            } else {
+                resources.push([right, left, right]);
+            }
+        }
+
+        if (resources.length > 0) {
+            try {
+                await commands.executeCommand('vscode.changes', `Changes against ${this.baseRef}`, resources);
+            } catch (e: any) {
+                const msg = 'Opening all changes failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
         }
     }
 
