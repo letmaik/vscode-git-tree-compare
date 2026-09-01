@@ -152,7 +152,7 @@ class RepositoryComparison {
         readonly repository: Repository,
         readonly repoRoot: FolderAbsPath,
         readonly absGitDir: string,
-        readonly workspaceFolder: string,
+        public workspaceFolder: string,
         readonly isOutsideWorkspace: boolean) {
         this.treeRoot = this.computeTreeRoot();
     }
@@ -821,6 +821,26 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.updateViewState();
     }
 
+    /**
+     * If a repository is covered by multiple workspace folders, the deepest one
+     * is used. `outsideWorkspace` repositories (linked worktrees) fall back to
+     * the repository root.
+     * TODO let the user choose which one
+     */
+    private pickWorkspaceFolder(repoRoot: string, outsideWorkspace: boolean,
+                                workspaceFolders = getWorkspaceFolders(repoRoot)): string {
+        if (outsideWorkspace || workspaceFolders.length === 0) {
+            return repoRoot;
+        }
+        // Sort descending by folder depth
+        const sorted = [...workspaceFolders].sort((a, b) => {
+            const aDepth = a.uri.fsPath.split(path.sep).length;
+            const bDepth = b.uri.fsPath.split(path.sep).length;
+            return bDepth - aDepth;
+        });
+        return normalizePath(sorted[0].uri.fsPath);
+    }
+
     private async createComparison(repositoryRoot: string, generation: number): Promise<RepositoryComparison> {
         const requestedRepositoryRoot = normalizePath(repositoryRoot);
         const actualRepositoryRoot = normalizePath(await this.git.getRepositoryRoot(requestedRepositoryRoot));
@@ -840,15 +860,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             workspaceFolders.push({ uri: Uri.file(repoRoot), name: path.basename(repoRoot), index: 0 });
         }
 
-        // Sort descending by folder depth
-        workspaceFolders.sort((a, b) => {
-            const aDepth = a.uri.fsPath.split(path.sep).length;
-            const bDepth = b.uri.fsPath.split(path.sep).length;
-            return bDepth - aDepth;
-        });
-        // If repo appears in multiple workspace folders, pick the deepest one.
-        // TODO let the user choose which one
-        const workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
+        const workspaceFolder = this.pickWorkspaceFolder(repoRoot, outsideWorkspace, workspaceFolders);
 
         if (generation !== this.comparisonGeneration) {
             throw new ComparisonCreationCancelledError();
@@ -966,13 +978,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     private async handleRepositoryOpened(repository: GitAPIRepository) {
+        // Subscribe before awaiting so that a close arriving in the meantime
+        // disposes the subscription instead of leaving it behind.
+        this.watchRepositoryUi(repository);
         if (!this.showRepositoryNodes() && this.activeComparison === undefined) {
             await this.changeRepository(repository.rootUri.fsPath);
         } else {
             this.updateViewState();
             this.fireTreeDataChange();
         }
-        this.watchRepositoryUi(repository);
     }
 
     private watchRepositoryUi(repository: GitAPIRepository) {
@@ -1132,6 +1146,33 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (e.removed.length > 0) {
             this.invalidateComparisonCreations();
             this.pruneComparisons();
+        }
+
+        // A repository can be covered by several workspace folders. If the one
+        // that was used as tree root got removed, the comparison survives but
+        // has to fall back to another folder of the same repository.
+        const staleComparisons: RepositoryComparison[] = [];
+        for (const comparison of this.comparisons.values()) {
+            const workspaceFolder = this.pickWorkspaceFolder(
+                comparison.repoRoot, comparison.isOutsideWorkspace);
+            if (workspaceFolder === comparison.workspaceFolder) {
+                continue;
+            }
+            comparison.workspaceFolder = workspaceFolder;
+            const treeRootChanged = comparison.updateTreeRootFolder();
+            // Comparisons that have not been loaded yet pick up the new tree
+            // root when they are first expanded.
+            if (treeRootChanged && comparison.isLoaded) {
+                staleComparisons.push(comparison);
+            }
+        }
+        for (const comparison of staleComparisons) {
+            try {
+                await comparison.updateDiff(false);
+            } catch (e: any) {
+                this.log('Updating the git tree failed', e);
+                comparison.clearFiles();
+            }
         }
 
         if (!this.showRepositoryNodes()) {
