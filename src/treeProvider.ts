@@ -12,7 +12,7 @@ import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
+         getDiffStatuses, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile, listWorktrees } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
 import { throttle } from './git/decorators'
@@ -97,7 +97,6 @@ interface IComparisonHost {
     readonly fullDiff: boolean;
     readonly findRenames: boolean;
     readonly renameThreshold: number;
-    readonly refreshIndex: boolean;
     readonly omitUntrackedFiles: boolean;
     readonly omitUnstagedChanges: boolean;
     readonly showDiffStats: boolean;
@@ -382,7 +381,7 @@ class RepositoryComparison {
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await diffIndex(this.repository, this.mergeBase, this.host.refreshIndex, this.host.findRenames,
+        const diff = await getDiffStatuses(this.repository, this.mergeBase, this.host.findRenames,
             this.host.renameThreshold, this.host.omitUntrackedFiles, this.host.omitUnstagedChanges, this.host.showDiffStats);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.host.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
@@ -586,7 +585,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private autoChangeRepository: boolean;
     private multiRepositoryView: boolean;
     private autoRefresh: boolean;
-    refreshIndex: boolean;
     private iconsMinimal: boolean;
     private iconStyle: IconStyle;
     fullDiff: boolean;
@@ -1210,7 +1208,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.autoChangeRepository = config.get<boolean>('autoChangeRepository', false);
         this.multiRepositoryView = config.get<boolean>('multiRepositoryView', false);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
-        this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.iconStyle = config.get<IconStyle>('iconStyle', 'status');
         this.fullDiff = config.get<string>('diffMode') === 'full';
@@ -1443,7 +1440,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldInclude = this.includeFilesOutsideWorkspaceFolderRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
-        const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
         const oldIconStyle = this.iconStyle;
         const oldFullDiff = this.fullDiff;
@@ -1468,7 +1464,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldIconsMinimal != this.iconsMinimal ||
             oldIconStyle != this.iconStyle ||
             (!oldAutoRefresh && this.autoRefresh) ||
-            (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
             oldFindRenames != this.findRenames ||
             oldRenameThreshold != this.renameThreshold ||
@@ -1507,7 +1502,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 oldFindRenames != this.findRenames ||
                 oldRenameThreshold != this.renameThreshold ||
                 (!oldAutoRefresh && this.autoRefresh) ||
-                (!oldRefreshIndex && this.refreshIndex) ||
                 oldOmitUntrackedFiles != this.omitUntrackedFiles ||
                 oldOmitUnstagedChanges != this.omitUnstagedChanges ||
                 oldShowDiffStats != this.showDiffStats;
@@ -2112,6 +2106,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const headRepoUrl = headRepo.clone_url;
                 const isFork = headRepo.full_name !== pr.base.repo.full_name;
 
+                // Find which local remote points to the base repo (may not be 'origin')
+                const baseCloneUrl = pr.base.repo.clone_url;
+                const baseSshUrl = pr.base.repo.ssh_url;
+                const normalizeRemoteUrl = (u: string) => u.toLowerCase().replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+                const remotes = await repository.getRemotes();
+                const baseRemoteName = remotes.find(r => {
+                    const url = normalizeRemoteUrl(r.fetchUrl || r.pushUrl || '');
+                    return url === normalizeRemoteUrl(baseCloneUrl) || url === normalizeRemoteUrl(baseSshUrl);
+                })?.name ?? 'origin';
+
                 // Extract head owner for branch naming
                 const headOwner = pr.head.user?.login || pr.head.repo?.owner.login;
                 if (!headOwner) {
@@ -2161,17 +2165,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         this.log(`Created local branch ${localBranchName} tracking ${forkRemoteName}/${headRef}`);
                     } else {
                         // For same repo, use GitHub's pull/<id>/head refspec
-                        this.log(`Fetching PR #${prNumber} from origin`);
-                        await repository.exec(['fetch', 'origin', `pull/${prNumber}/head:${localBranchName}`]);
+                        this.log(`Fetching PR #${prNumber} from ${baseRemoteName}`);
+                        await repository.exec(['fetch', baseRemoteName, `pull/${prNumber}/head:${localBranchName}`]);
                         
-                        // Set upstream to origin/<headRef> if the branch exists there
+                        // Set upstream to <remote>/<headRef> if the branch exists there
                         try {
                             // Fetch the actual head ref to update the remote tracking branch
-                            await repository.fetch({ remote: 'origin', ref: headRef });
-                            await repository.exec(['branch', '--set-upstream-to', `origin/${headRef}`, localBranchName]);
-                            this.log(`Created local branch ${localBranchName} tracking origin/${headRef}`);
+                            await repository.fetch({ remote: baseRemoteName, ref: headRef });
+                            await repository.exec(['branch', '--set-upstream-to', `${baseRemoteName}/${headRef}`, localBranchName]);
+                            this.log(`Created local branch ${localBranchName} tracking ${baseRemoteName}/${headRef}`);
                         } catch {
-                            this.log(`Created local branch ${localBranchName} (no upstream - origin/${headRef} not found)`);
+                            this.log(`Created local branch ${localBranchName} (no upstream - ${baseRemoteName}/${headRef} not found)`);
                         }
                     }
                 } catch (e: any) {
@@ -2507,7 +2511,7 @@ class GitTreeCompareFileDecorationProvider implements FileDecorationProvider {
         if (uri.scheme !== TREE_RESOURCE_SCHEME || !isStatusCode(uri.query)) {
             return undefined;
         }
-        return new FileDecoration(undefined, getStatusText(uri.query), getStatusColor(uri.query));
+        return new FileDecoration(getStatusBadge(uri.query), getStatusText(uri.query), getStatusColor(uri.query));
     }
 }
 
@@ -2645,6 +2649,10 @@ function getStatusText(status: StatusCode) {
         case 'T': return 'Type changed';
         case 'R': return 'Renamed';
     }
+}
+
+function getStatusBadge(status: StatusCode) {
+    return status === 'C' ? '!' : status;
 }
 
 function getStatusColor(status: StatusCode): ThemeColor {

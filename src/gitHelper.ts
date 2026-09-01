@@ -204,14 +204,14 @@ function sanitizeStatus(status: string): StatusCode {
     return status as StatusCode;
 }
 
-// https://git-scm.com/docs/git-diff-index#_raw_output_format
+// https://git-scm.com/docs/git-diff#_raw_output_format
 const MODE_LEN = 6;
 const SHA1_LEN = 40;
 const SRC_MODE_OFFSET = 1;
 const DST_MODE_OFFSET = 2 + MODE_LEN;
 const STATUS_OFFSET = 2 * MODE_LEN + 2 * SHA1_LEN + 5;
 
-function parseDiffIndexOutput(repoRoot: string, out: string): IDiffStatus[] {
+function parseDiffRawOutput(repoRoot: string, out: string): IDiffStatus[] {
     const entries: IDiffStatus[] = [];
     while (out) {
         const srcMode = out.substr(SRC_MODE_OFFSET, MODE_LEN);
@@ -284,26 +284,33 @@ async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
     }));
 }
 
-export async function diffIndex(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
-    if (refreshIndex) {
-        // avoid superfluous diff entries if files only got touched
-        // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
-        try {
-            await repo.exec(['update-index', '--refresh', '-q']);
-        } catch (e) {
-            // ignore errors as this is a bonus anyway
-        }
-    }
+// `git diff` only compares the actual file contents of stat-dirty files when
+// diff.autoRefreshIndex is enabled. Without it, such files are reported as
+// modified based on stat information alone, which causes superfluous diff
+// entries for files that only got touched
+// (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
+// or whose contents were restored to match the comparison ref
+// (see https://github.com/letmaik/vscode-git-tree-compare/issues/88).
+// It is enabled by default but has to be forced in case a user turned it off.
+const AUTO_REFRESH_INDEX_ARGS = ['-c', 'diff.autoRefreshIndex=true'];
 
+export async function getDiffStatuses(repo: Repository, ref: string, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
     // exceptions can happen with newly initialized repos without commits, or when git is busy
     const repoRoot = normalizePath(repo.root);
     const renamesFlag = findRenames ? `--find-renames=${renameThreshold}%`  : '--no-renames';
-    const diffIndexArgs = ['diff-index', '-z', renamesFlag];
+    // Use `git diff` rather than `git diff-index` here so that the result is
+    // based on the final working tree contents. `diff-index` may report a
+    // stat-dirty file with an all-zero destination object ID without checking
+    // whether its contents actually match the comparison ref.
+    //
+    // Raw `git diff` output abbreviates object IDs by default, while the parser
+    // below expects the 40-character format previously emitted by diff-index.
+    const diffArgs = [...AUTO_REFRESH_INDEX_ARGS, 'diff', '--raw', '--abbrev=40', '-z', renamesFlag];
     if (omitUnstagedChanges) {
-        diffIndexArgs.push('--cached');
+        diffArgs.push('--cached');
     }
-    diffIndexArgs.push(ref, '--');
-    let diffIndexResult = await repo.exec(diffIndexArgs);
+    diffArgs.push(ref, '--');
+    const diffResult = await repo.exec(diffArgs);
     
     let untrackedStatuses: IDiffStatus[] = [];
     if (!omitUntrackedFiles) {
@@ -313,19 +320,24 @@ export async function diffIndex(repo: Repository, ref: string, refreshIndex: boo
             .map(line => new DiffStatus(repoRoot, 'U' as 'U', line, undefined, MODE_EMPTY, MODE_REGULAR_FILE));
     }
 
-    const diffIndexStatuses = parseDiffIndexOutput(repoRoot, diffIndexResult.stdout);
+    const diffStatuses = parseDiffRawOutput(repoRoot, diffResult.stdout);
 
     const untrackedAbsPaths = new Set(untrackedStatuses.map(status => status.dstAbsPath))
 
-    // If a file was removed (D in diff-index) but was then re-introduced and not committed yet,
+    // If a file was removed (D in diff) but was then re-introduced and not committed yet,
     // then that file also appears as untracked (in ls-files). We need to decide which status to keep.
     // Since the untracked status is newer it gets precedence.
-    const filteredDiffIndexStatuses = diffIndexStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
+    const filteredDiffStatuses = diffStatuses.filter(status => !untrackedAbsPaths.has(status.srcAbsPath));
 
-    const statuses = filteredDiffIndexStatuses.concat(untrackedStatuses);
+    const statuses = filteredDiffStatuses.concat(untrackedStatuses);
 
     if (showDiffStats) {
-        const numstatResult = await repo.exec(['diff', '--numstat', renamesFlag, ref, '--']);
+        const numstatArgs = [...AUTO_REFRESH_INDEX_ARGS, 'diff', '--numstat', renamesFlag];
+        if (omitUnstagedChanges) {
+            numstatArgs.push('--cached');
+        }
+        numstatArgs.push(ref, '--');
+        const numstatResult = await repo.exec(numstatArgs);
         const numstatMap = parseDiffNumstat(repoRoot, numstatResult.stdout);
         for (const entry of statuses) {
             const fileStats = numstatMap.get(entry.dstAbsPath) || numstatMap.get(entry.srcAbsPath);
