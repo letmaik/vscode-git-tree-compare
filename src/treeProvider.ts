@@ -1905,7 +1905,7 @@ class GitTreeCompareFileDecorationProvider implements FileDecorationProvider {
         if (uri.scheme !== TREE_RESOURCE_SCHEME || !isStatusCode(uri.query)) {
             return undefined;
         }
-        return new FileDecoration(undefined, getStatusText(uri.query), getStatusColor(uri.query));
+        return new FileDecoration(getStatusBadge(uri.query), getStatusText(uri.query), getStatusColor(uri.query));
     }
 }
 
@@ -2030,6 +2030,10 @@ function getStatusText(status: StatusCode) {
         case 'T': return 'Type changed';
         case 'R': return 'Renamed';
     }
+}
+
+function getStatusBadge(status: StatusCode) {
+    return status === 'C' ? '!' : status;
 }
 
 function getStatusColor(status: StatusCode): ThemeColor {
