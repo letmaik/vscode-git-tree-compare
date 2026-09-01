@@ -284,17 +284,17 @@ async function computeUntrackedStats(entries: IDiffStatus[]): Promise<void> {
     }));
 }
 
-export async function getDiffStatuses(repo: Repository, ref: string, refreshIndex: boolean, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
-    if (refreshIndex) {
-        // avoid superfluous diff entries if files only got touched
-        // (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
-        try {
-            await repo.exec(['update-index', '--refresh', '-q']);
-        } catch (e) {
-            // ignore errors as this is a bonus anyway
-        }
-    }
+// `git diff` only compares the actual file contents of stat-dirty files when
+// diff.autoRefreshIndex is enabled. Without it, such files are reported as
+// modified based on stat information alone, which causes superfluous diff
+// entries for files that only got touched
+// (see https://github.com/letmaik/vscode-git-tree-compare/issues/37)
+// or whose contents were restored to match the comparison ref
+// (see https://github.com/letmaik/vscode-git-tree-compare/issues/88).
+// It is enabled by default but has to be forced in case a user turned it off.
+const AUTO_REFRESH_INDEX_ARGS = ['-c', 'diff.autoRefreshIndex=true'];
 
+export async function getDiffStatuses(repo: Repository, ref: string, findRenames: boolean, renameThreshold: number, omitUntrackedFiles: boolean, omitUnstagedChanges: boolean, showDiffStats: boolean = false): Promise<IDiffStatus[]> {
     // exceptions can happen with newly initialized repos without commits, or when git is busy
     const repoRoot = normalizePath(repo.root);
     const renamesFlag = findRenames ? `--find-renames=${renameThreshold}%`  : '--no-renames';
@@ -305,7 +305,7 @@ export async function getDiffStatuses(repo: Repository, ref: string, refreshInde
     //
     // Raw `git diff` output abbreviates object IDs by default, while the parser
     // below expects the 40-character format previously emitted by diff-index.
-    const diffArgs = ['diff', '--raw', '--abbrev=40', '-z', renamesFlag];
+    const diffArgs = [...AUTO_REFRESH_INDEX_ARGS, 'diff', '--raw', '--abbrev=40', '-z', renamesFlag];
     if (omitUnstagedChanges) {
         diffArgs.push('--cached');
     }
@@ -332,7 +332,7 @@ export async function getDiffStatuses(repo: Repository, ref: string, refreshInde
     const statuses = filteredDiffStatuses.concat(untrackedStatuses);
 
     if (showDiffStats) {
-        const numstatArgs = ['diff', '--numstat', renamesFlag];
+        const numstatArgs = [...AUTO_REFRESH_INDEX_ARGS, 'diff', '--numstat', renamesFlag];
         if (omitUnstagedChanges) {
             numstatArgs.push('--cached');
         }

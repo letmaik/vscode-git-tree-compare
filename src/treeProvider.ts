@@ -130,7 +130,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private openChangesOnSelect: boolean;
     private autoChangeRepository: boolean;
     private autoRefresh: boolean;
-    private refreshIndex: boolean;
     private iconsMinimal: boolean;
     private iconStyle: IconStyle;
     private fullDiff: boolean;
@@ -463,7 +462,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoChangeRepository = config.get<boolean>('autoChangeRepository', false);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
-        this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.iconStyle = config.get<IconStyle>('iconStyle', 'status');
         this.fullDiff = config.get<string>('diffMode') === 'full';
@@ -715,7 +713,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
         const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
 
-        const diff = await getDiffStatuses(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
+        const diff = await getDiffStatuses(this.repository!, this.mergeBase, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
         const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
         this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
 
@@ -937,7 +935,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldInclude = this.includeFilesOutsideWorkspaceFolderRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
-        const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
         const oldIconStyle = this.iconStyle;
         const oldFullDiff = this.fullDiff;
@@ -960,7 +957,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldIconsMinimal != this.iconsMinimal ||
             oldIconStyle != this.iconStyle ||
             (!oldAutoRefresh && this.autoRefresh) ||
-            (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
             oldFindRenames != this.findRenames ||
             oldRenameThreshold != this.renameThreshold ||
@@ -985,7 +981,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 oldRenameThreshold != this.renameThreshold ||
                 oldTreeRoot != this.treeRoot ||
                 (!oldAutoRefresh && this.autoRefresh) ||
-                (!oldRefreshIndex && this.refreshIndex) ||
                 oldOmitUntrackedFiles != this.omitUntrackedFiles ||
                 oldOmitUnstagedChanges != this.omitUnstagedChanges ||
                 oldShowDiffStats != this.showDiffStats) {
