@@ -56,7 +56,7 @@
                 {
                     "id": "gitTreeCompare",
                     "name": "none",
-                    "when": "config.git.enabled && gitOpenRepositoryCount != 0",
+                    "when": "config.git.enabled",
                     "icon": "./resources/logo.svg",
                     "initialSize": 3
                 },
@@ -69,6 +69,23 @@
                 }
             ]
         },
+        "viewsWelcome": [
+            {
+                "view": "gitTreeCompare",
+                "contents": "Git is not installed, or not found on the PATH.\n[Show Source Control](command:workbench.view.scm)",
+                "when": "config.git.enabled && git.missing"
+            },
+            {
+                "view": "gitTreeCompare",
+                "contents": "In order to compare against a branch, open a folder containing a git repository.\n[Open Folder](command:vscode.openFolder)",
+                "when": "config.git.enabled && !git.missing && git.state == initialized && gitOpenRepositoryCount == 0 && workbenchState == empty"
+            },
+            {
+                "view": "gitTreeCompare",
+                "contents": "No git repository found in the open folders.\nIf you expected one, check the Source Control view: the repository may be closed, or blocked as unsafe.\n[Show Source Control](command:workbench.view.scm)",
+                "when": "config.git.enabled && !git.missing && git.state == initialized && gitOpenRepositoryCount == 0 && workbenchState != empty"
+            }
+        ],
         "commands": [
             {
                 "command": "gitTreeCompare.changeRepository",
