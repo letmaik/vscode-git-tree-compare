@@ -33,6 +33,7 @@ In bigger projects with many files it also provides **context**, it gives you a 
 - Search within changed files
 
 - View diffs for linked git worktrees via **Change Worktree...**, switch back via **Switch to Working Tree**
+- Optional commits panel to restrict the comparison to a subset of commits
 
 ## Location
 
@@ -63,6 +64,23 @@ You can quickly view GitHub PR changes directly in VS Code using the **Compare G
    - Display all changes in the tree view
 
 This feature works with both PRs from the same repository and PRs from forks.
+
+## Commits panel
+
+Enable `gitTreeCompare.showCommitsPanel` to show a **Commits** panel below the tree. It lists
+the commits between the comparison base and `HEAD`, newest first, with an **Uncommitted Changes**
+entry on top.
+
+Unchecking entries restricts the tree to the changes introduced by the remaining ones. The
+selection always covers a contiguous range of the timeline, since a range diff cannot leave out
+intermediate commits: unchecking something in the middle snaps the rest of the selection to a
+contiguous block.
+
+While a subset is selected, the tree compares two commits rather than the working tree, so
+discarding changes is unavailable until the full comparison is restored.
+
+The panel follows the repository selected in the tree, and its selection resets whenever the
+comparison changes (a new base, or new commits on `HEAD`).
 
 ## Settings
 

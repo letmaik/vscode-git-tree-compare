@@ -57,7 +57,15 @@
                     "id": "gitTreeCompare",
                     "name": "none",
                     "when": "config.git.enabled && gitOpenRepositoryCount != 0",
-                    "icon": "./resources/logo.svg"
+                    "icon": "./resources/logo.svg",
+                    "initialSize": 3
+                },
+                {
+                    "id": "gitTreeCompareCommits",
+                    "name": "Commits",
+                    "when": "config.git.enabled && gitOpenRepositoryCount != 0 && config.gitTreeCompare.showCommitsPanel",
+                    "icon": "./resources/logo.svg",
+                    "initialSize": 1
                 }
             ]
         },
@@ -246,6 +254,24 @@
                 "command": "gitTreeCompare.openChangesWithDifftool",
                 "title": "Open Changes with Difftool",
                 "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.commits.selectAll",
+                "title": "Select All Commits",
+                "icon": "$(check-all)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.commits.deselectAll",
+                "title": "Deselect All Commits",
+                "icon": "$(close-all)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.commits.refresh",
+                "title": "Refresh Commits",
+                "icon": "$(refresh)",
+                "category": "Git Tree Compare"
             }
         ],
         "submenus": [
@@ -255,6 +281,20 @@
             }
         ],
         "menus": {
+            "commandPalette": [
+                {
+                    "command": "gitTreeCompare.commits.selectAll",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                },
+                {
+                    "command": "gitTreeCompare.commits.deselectAll",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                },
+                {
+                    "command": "gitTreeCompare.commits.refresh",
+                    "when": "config.gitTreeCompare.showCommitsPanel"
+                }
+            ],
             "gitTreeCompare.viewAndSort": [
                 {
                     "command": "gitTreeCompare.viewAsList",
@@ -405,6 +445,21 @@
                     "submenu": "gitTreeCompare.viewAndSort",
                     "when": "view == gitTreeCompare",
                     "group": "0_view_and_sort"
+                },
+                {
+                    "command": "gitTreeCompare.commits.selectAll",
+                    "when": "view == gitTreeCompareCommits",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "gitTreeCompare.commits.deselectAll",
+                    "when": "view == gitTreeCompareCommits",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "gitTreeCompare.commits.refresh",
+                    "when": "view == gitTreeCompareCommits",
+                    "group": "navigation@3"
                 }
             ],
             "view/item/context": [
@@ -597,6 +652,11 @@
                 "gitTreeCompare.multiRepositoryView": {
                     "type": "boolean",
                     "description": "[EXPERIMENTAL] Whether to show one expandable Git Tree Compare section per open repository instead of selecting a single active repository.",
+                    "default": false
+                },
+                "gitTreeCompare.showCommitsPanel": {
+                    "type": "boolean",
+                    "description": "Whether to show the \"Commits\" panel below the tree, which lists the commits between the base and HEAD and lets you filter the comparison to a subset of commits.",
                     "default": false
                 },
                 "gitTreeCompare.autoRefresh": {
