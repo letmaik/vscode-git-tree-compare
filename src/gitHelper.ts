@@ -104,10 +104,10 @@ export async function getDefaultBranch(repo: Repository, head: Ref): Promise<str
             // this can happen on a newly initialized repo without commits
             return;
         }
-        if (!headBranch.upstream) {
-            return;
-        }
-        remote = headBranch.upstream.remote;
+        // An unpublished branch has no upstream to derive the remote from, so fall
+        // back to 'origin' as for detached HEAD. Without this the caller ends up
+        // using HEAD itself as the base, which compares a branch against itself.
+        remote = headBranch.upstream?.remote ?? 'origin';
     } else {
         // detached HEAD, fall-back and try 'origin'
         remote = 'origin';
