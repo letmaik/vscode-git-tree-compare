@@ -112,6 +112,12 @@
             },
             {
                 "command": "gitTreeCompare.refresh",
+                "title": "Refresh Repository",
+                "icon": "$(refresh)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.refreshAll",
                 "title": "Refresh",
                 "icon": "$(refresh)",
                 "category": "Git Tree Compare"
@@ -270,46 +276,46 @@
             "view/title": [
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitOpenRepositoryCount != 1",
                     "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && gitOpenRepositoryCount != 1",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitOpenRepositoryCount != 1",
                     "group": "navigation@2"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.compareGitHubPullRequest",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "1_state"
                 },
                 {
                     "command": "gitTreeCompare.openAllChanges",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.openChangedFiles",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.discardAllChanges",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "2_files"
                 },
                 {
-                    "command": "gitTreeCompare.refresh",
+                    "command": "gitTreeCompare.refreshAll",
                     "when": "view == gitTreeCompare",
                     "group": "1_state"
                 },
                 {
-                    "command": "gitTreeCompare.refresh",
+                    "command": "gitTreeCompare.refreshAll",
                     "when": "view == gitTreeCompare",
                     "group": "navigation@3"
                 },
@@ -355,17 +361,17 @@
                 },
                 {
                     "command": "gitTreeCompare.searchChanges",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "2_files"
                 },
                 {
                     "command": "gitTreeCompare.filterFiles",
-                    "when": "view == gitTreeCompare",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes",
                     "group": "navigation@4"
                 },
                 {
                     "command": "gitTreeCompare.clearFilter",
-                    "when": "view == gitTreeCompare && gitTreeCompare.isFiltered",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitTreeCompare.isFiltered",
                     "group": "navigation@5"
                 },
                 {
@@ -380,6 +386,47 @@
                 }
             ],
             "view/item/context": [
+                {
+                    "command": "gitTreeCompare.changeBase",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "gitTreeCompare.openAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "gitTreeCompare.openChangedFiles",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "inline@3"
+                },
+                {
+                    "command": "gitTreeCompare.refresh",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "inline@4"
+                },
+                {
+                    "command": "gitTreeCompare.filterFiles",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "inline@5"
+                },
+                {
+                    "command": "gitTreeCompare.discardAllChanges",
+                    "when": "view == gitTreeCompare && viewItem == repo"
+                },
+                {
+                    "command": "gitTreeCompare.compareGitHubPullRequest",
+                    "when": "view == gitTreeCompare && viewItem == repo"
+                },
+                {
+                    "command": "gitTreeCompare.searchChanges",
+                    "when": "view == gitTreeCompare && viewItem == repo"
+                },
+                {
+                    "command": "gitTreeCompare.clearFilter",
+                    "when": "view == gitTreeCompare && viewItem == repo && gitTreeCompare.isFiltered"
+                },
                 {
                     "command": "gitTreeCompare.openChanges",
                     "when": "view == gitTreeCompare && viewItem == file && !config.gitTreeCompare.openChanges",
@@ -431,7 +478,7 @@
                 },
                 {
                     "command": "gitTreeCompare.changeRepository",
-                    "when": "view == gitTreeCompare && viewItem == ref && gitOpenRepositoryCount != 1"
+                    "when": "view == gitTreeCompare && viewItem == ref && !gitTreeCompare.showRepositoryNodes && gitOpenRepositoryCount != 1"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
@@ -498,7 +545,7 @@
                 },
                 {
                     "submenu": "gitTreeCompare.viewAndSort",
-                    "when": "view == gitTreeCompare && viewItem == ref",
+                    "when": "view == gitTreeCompare && (viewItem == ref || viewItem == repo)",
                     "group": "0_view_and_sort"
                 },
                 {
@@ -514,6 +561,11 @@
                 "gitTreeCompare.autoChangeRepository": {
                     "type": "boolean",
                     "description": "[EXPERIMENTAL] Whether to change the active repository whenever a different one is selected in the SCM view. Note that this only works well when not selecting multiple repositories. See GitHub issue #70 for more details.",
+                    "default": false
+                },
+                "gitTreeCompare.multiRepositoryView": {
+                    "type": "boolean",
+                    "description": "[EXPERIMENTAL] Whether to show one expandable Git Tree Compare section per open repository instead of selecting a single active repository.",
                     "default": false
                 },
                 "gitTreeCompare.autoRefresh": {
@@ -568,6 +620,7 @@
                 },
                 "gitTreeCompare.iconStyle": {
                     "type": "string",
+                    "description": "Which icon style to use for files in the compare tree. File theme icons show Git status through file decorations.",
                     "enum": [
                         "status",
                         "fileTheme"
@@ -576,7 +629,6 @@
                         "Use the extension's git status icons for files.",
                         "Use VS Code file theme icons and show git status with file decorations."
                     ],
-                    "description": "Which icon style to use for files in the compare tree. File theme icons show Git status through file decorations.",
                     "default": "status"
                 },
                 "gitTreeCompare.collapsed": {
