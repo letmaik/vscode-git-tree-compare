@@ -86,6 +86,8 @@ comparison changes (a new base, or new commits on `HEAD`).
 
 `gitTreeCompare.diffMode` Determines how the comparison is performed, either by computing a merge base commit first and then comparing against that (equivalent to pull request diffs, default), or by comparing directly to the given base (useful to see the exact diff).
 
+`gitTreeCompare.detectStackBaseBranch` Whether to use the parent branch of the current [gh-stack](https://github.com/github/gh-stack) stack as base branch, if the current branch is part of one. This takes precedence over the last base branch used for the repository, but not over a base branch chosen explicitly for the current branch.
+
 `gitTreeCompare.autoRefresh` Option to turn off automatic refresh. This can be useful for huge repositories when diff operations take a long time. As a work-around, disabling auto refresh also prevents locking issues when running `git rebase` from the integrated terminal (a stand-alone terminal wouldn't cause issues as auto refresh is stopped while the VS Code window is out of focus). A manual refresh can be triggered via the tree menu. Note that automatic refreshs are not triggered by changes to files outside the workspace folder (which can happen when opening a subdirectory of the repository root as workspace folder).
 
 `gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
