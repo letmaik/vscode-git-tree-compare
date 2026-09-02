@@ -300,7 +300,7 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         const item = new TreeItem('Uncommitted Changes', TreeItemCollapsibleState.None);
         item.id = UNCOMMITTED_ID;
         item.description = formatSummary(s.fileCount, s.insertions, s.deletions);
-        item.iconPath = new ThemeIcon('source-control');
+        item.iconPath = new ThemeIcon('circle-outline');
         item.contextValue = 'uncommitted';
         item.checkboxState = this.isChecked(UNCOMMITTED_ID) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
         item.tooltip = 'Uncommitted changes in the working tree (compared to HEAD)';
