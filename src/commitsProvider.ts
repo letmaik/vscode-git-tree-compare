@@ -43,11 +43,11 @@ export interface ComparisonHost {
     // Fired when a relevant working-tree/refs change is detected, independent of whether
     // the main tree is currently visible. Used to auto-refresh the commits list.
     readonly onDidChangeRepository: Event<void>;
-    getComparison(): ComparisonInfo | undefined;
+    getCommitsComparison(): ComparisonInfo | undefined;
     // Updates the cached comparison refs (merge base / HEAD) from git without recomputing
-    // the full file diff. Must be called before reading getComparison() on auto-refresh so
+    // the full file diff. Must be called before reading getCommitsComparison() on auto-refresh so
     // the commits list picks up new commits even while the main tree is hidden.
-    refreshComparison(): Promise<void>;
+    refreshCommitsComparison(): Promise<void>;
     getBranchCommits(): Promise<ICommitInfo[]>;
     getUncommittedSummary(): Promise<IUncommittedSummary>;
     setCommitFilter(spec: CommitFilterSpec): Promise<void>;
@@ -133,7 +133,7 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         if (!window.state.focused || !(this.treeView?.visible ?? false)) {
             return;
         }
-        await this.host.refreshComparison();
+        await this.host.refreshCommitsComparison();
         await this.refresh();
     }
 
@@ -149,17 +149,30 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         return this.checked.get(id) ?? true;
     }
 
+    // In the repository-node layout the list follows the selection in the main tree,
+    // so it can legitimately have no comparison to show. Explain that rather than
+    // rendering a bare empty list.
+    private updateMessage() {
+        if (!this.treeView) {
+            return;
+        }
+        this.treeView.message = this.host.getCommitsComparison()
+            ? undefined
+            : 'Select a repository in the Git Tree Compare view to list its commits.';
+    }
+
     async refresh(): Promise<void> {
-        const comparison = this.host.getComparison();
+        const comparison = this.host.getCommitsComparison();
         if (!comparison) {
             this.commits = [];
             this.uncommitted = { fileCount: 0, insertions: 0, deletions: 0 };
             this.commitSetKey = '';
+            this.updateMessage();
             this._onDidChangeTreeData.fire();
             return;
         }
 
-        const key = `${comparison.mergeBase}..${comparison.headCommit}`;
+        const key = `${comparison.repoRoot}\0${comparison.mergeBase}..${comparison.headCommit}`;
         const keyChanged = key !== this.commitSetKey;
 
         if (keyChanged) {
@@ -170,6 +183,7 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         }
         this.uncommitted = await this.host.getUncommittedSummary();
 
+        this.updateMessage();
         this._onDidChangeTreeData.fire();
 
         if (keyChanged) {
@@ -297,7 +311,7 @@ export class CommitsTreeProvider implements TreeDataProvider<CommitListElement>,
         if (element) {
             return []; // flat list
         }
-        if (!this.host.getComparison()) {
+        if (!this.host.getCommitsComparison()) {
             return [];
         }
         const items: CommitListElement[] = [new UncommittedElement(this.uncommitted)];

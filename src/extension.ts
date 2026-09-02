@@ -46,9 +46,9 @@ export function activate(context: ExtensionContext) {
         });
     });
 
-    commands.registerCommand(NAMESPACE + '.discardAllChanges', () => {
+    commands.registerCommand(NAMESPACE + '.discardAllChanges', node => {
         runAfterInit(() => {
-            provider!.discardAllChanges();
+            provider!.discardAllChanges(node);
         });
     });
 
@@ -57,19 +57,24 @@ export function activate(context: ExtensionContext) {
             provider!.promptChangeRepository();
         });
     });
-    commands.registerCommand(NAMESPACE + '.changeBase', () => {
+    commands.registerCommand(NAMESPACE + '.changeBase', node => {
         runAfterInit(() => {
-            provider!.promptChangeBase();
+            provider!.promptChangeBase(node);
         });
     });
-    commands.registerCommand(NAMESPACE + '.compareGitHubPullRequest', () => {
+    commands.registerCommand(NAMESPACE + '.compareGitHubPullRequest', node => {
         runAfterInit(() => {
-            provider!.compareGitHubPullRequest();
+            provider!.compareGitHubPullRequest(node);
         });
     });
-    commands.registerCommand(NAMESPACE + '.refresh', () => {
+    commands.registerCommand(NAMESPACE + '.refresh', node => {
         runAfterInit(() => {
-            provider!.manualRefresh();
+            provider!.manualRefresh(node);
+        });
+    });
+    commands.registerCommand(NAMESPACE + '.refreshAll', () => {
+        runAfterInit(() => {
+            provider!.manualRefreshAll();
         });
     });
     commands.registerCommand(NAMESPACE + '.openAllChanges', node => {
@@ -102,17 +107,17 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.showCheckedInTree', () => {
         runAfterInit(() => provider!.setHideCheckedFiles(false));
     });
-    commands.registerCommand(NAMESPACE + '.searchChanges', () => {
-        runAfterInit(() => provider!.searchChanges());
+    commands.registerCommand(NAMESPACE + '.searchChanges', node => {
+        runAfterInit(() => provider!.searchChanges(node));
     });
     commands.registerCommand(NAMESPACE + '.collapseAll', () => {
         runAfterInit(() => provider!.collapseAll());
     });
-    commands.registerCommand(NAMESPACE + '.filterFiles', () => {
-        runAfterInit(() => provider!.filterFiles());
+    commands.registerCommand(NAMESPACE + '.filterFiles', node => {
+        runAfterInit(() => provider!.filterFiles(node));
     });
-    commands.registerCommand(NAMESPACE + '.clearFilter', () => {
-        runAfterInit(() => provider!.clearFilter());
+    commands.registerCommand(NAMESPACE + '.clearFilter', node => {
+        runAfterInit(() => provider!.clearFilter(node));
     });
     commands.registerCommand(NAMESPACE + '.copyPath', node => {
         runAfterInit(() => provider!.copyPath(node));
@@ -157,6 +162,7 @@ export function activate(context: ExtensionContext) {
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
         commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
+        commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
 
@@ -168,7 +174,11 @@ export function activate(context: ExtensionContext) {
             }
         );
 
-        provider.init(treeView);
+        disposables.push(provider, treeView);
+        void provider.init(treeView).catch(error => {
+            outputChannel.appendLine(`Initializing Git Tree Compare failed: ${error.message}`);
+            window.showErrorMessage(`Initializing Git Tree Compare failed: ${error.message}`);
+        });
 
         // The "Commits" panel is optional and disabled by default; create/dispose it
         // according to the gitTreeCompare.showCommitsPanel setting.
@@ -189,6 +199,9 @@ export function activate(context: ExtensionContext) {
                 Disposable.from(...commitsDisposables).dispose();
                 commitsDisposables = [];
                 commitsProvider = null;
+                // Without the panel there is no way to undo a commit selection,
+                // so restore the full comparison everywhere.
+                void provider!.clearCommitFilters();
             }
         };
         disposables.push(new Disposable(() => Disposable.from(...commitsDisposables).dispose()));

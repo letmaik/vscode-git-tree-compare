@@ -20,6 +20,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Open Changes or Open File
 
+- Open all changes at once in VS Code's multi-file diff editor
+
 - Discard Changes
 
 - Automatic refresh on file changes
@@ -29,6 +31,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 - Log output of all git commands run
 
 - Search within changed files
+
+- Optional commits panel to restrict the comparison to a subset of commits
 
 ## Location
 
@@ -52,15 +56,30 @@ You can quickly view GitHub PR changes directly in VS Code using the **Compare G
 
 This feature works with both PRs from the same repository and PRs from forks.
 
+## Commits panel
+
+Enable `gitTreeCompare.showCommitsPanel` to show a **Commits** panel below the tree. It lists
+the commits between the comparison base and `HEAD`, newest first, with an **Uncommitted Changes**
+entry on top.
+
+Unchecking entries restricts the tree to the changes introduced by the remaining ones. The
+selection always covers a contiguous range of the timeline, since a range diff cannot leave out
+intermediate commits: unchecking something in the middle snaps the rest of the selection to a
+contiguous block.
+
+While a subset is selected, the tree compares two commits rather than the working tree, so
+discarding changes is unavailable until the full comparison is restored.
+
+The panel follows the repository selected in the tree, and its selection resets whenever the
+comparison changes (a new base, or new commits on `HEAD`).
+
 ## Settings
 
 `gitTreeCompare.diffMode` Determines how the comparison is performed, either by computing a merge base commit first and then comparing against that (equivalent to pull request diffs, default), or by comparing directly to the given base (useful to see the exact diff).
 
 `gitTreeCompare.autoRefresh` Option to turn off automatic refresh. This can be useful for huge repositories when diff operations take a long time. As a work-around, disabling auto refresh also prevents locking issues when running `git rebase` from the integrated terminal (a stand-alone terminal wouldn't cause issues as auto refresh is stopped while the VS Code window is out of focus). A manual refresh can be triggered via the tree menu. Note that automatic refreshs are not triggered by changes to files outside the workspace folder (which can happen when opening a subdirectory of the repository root as workspace folder).
 
-`gitTreeCompare.refreshIndex` Option to turn off refreshing of the git index each time the tree is refreshed. Keeping this enabled avoids superfluous diff entries for cases when only the file modification date is changed, at the cost of an extra git invocation.
-
-`gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff-index`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
+`gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
 
 `gitTreeCompare.openChanges` Option which decides what should happen when clicking on a file in the tree - either open the changes, or the file itself. Default is to open the changes. The other action can always be accessed via the file's context menu.
 
@@ -83,3 +102,5 @@ This feature works with both PRs from the same repository and PRs from forks.
 `gitTreeCompare.openChangesWithDifftool` When enabled, adds an "Open Changes with Difftool" command to the context menu for files. This command opens the changes in the external diff tool configured in Git (e.g., via `git config diff.tool <tool-name>`). Default is disabled. Note: This requires you to have a difftool configured in your Git settings.
 
 `gitTreeCompare.showDiffStats` When enabled, shows insertion/deletion counts (+N -N) next to each file name in the tree view. Default is disabled.
+
+`gitTreeCompare.multiRepositoryView` [EXPERIMENTAL] When enabled and the workspace contains more than one Git repository, the tree shows one expanded section per repository instead of comparing a single active repository. Each repository keeps its own comparison base, filter and checkbox state. Workspaces with a single repository are unaffected. Default is disabled.
