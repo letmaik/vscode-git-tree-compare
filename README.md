@@ -20,6 +20,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Open Changes or Open File
 
+- Open all changes at once in VS Code's multi-file diff editor
+
 - Discard Changes
 
 - Automatic refresh on file changes
@@ -42,7 +44,9 @@ By default, the tree view is located in its own container accessible from the ac
 
 If you use [git worktrees](https://git-scm.com/docs/git-worktree), you can switch the tree view to another linked worktree with **Change Worktree...** from the view title bar. To return to your workspace checkout, use **Switch to Working Tree**. It appears as a dedicated button whenever you're viewing a different worktree, and as the first option in the **Change Worktree...** menu.
 
-Worktrees must be within your workspace folder (or open the worktree folder as your workspace) for the extension to display them.
+The worktree does not have to be part of your workspace, as long as git reports it as a linked worktree of the current repository.
+
+When the view shows a node per repository (`multiRepositoryView` with more than one repository in the workspace), use **Change Worktree...** from a repository node's context menu. Each repository node keeps its place in the tree and shows the selected worktree, with the worktree name next to the repository name.
 
 ## Compare GitHub Pull Requests
 
@@ -66,9 +70,7 @@ This feature works with both PRs from the same repository and PRs from forks.
 
 `gitTreeCompare.autoRefresh` Option to turn off automatic refresh. This can be useful for huge repositories when diff operations take a long time. As a work-around, disabling auto refresh also prevents locking issues when running `git rebase` from the integrated terminal (a stand-alone terminal wouldn't cause issues as auto refresh is stopped while the VS Code window is out of focus). A manual refresh can be triggered via the tree menu. Note that automatic refreshs are not triggered by changes to files outside the workspace folder (which can happen when opening a subdirectory of the repository root as workspace folder).
 
-`gitTreeCompare.refreshIndex` Option to turn off refreshing of the git index each time the tree is refreshed. Keeping this enabled avoids superfluous diff entries for cases when only the file modification date is changed, at the cost of an extra git invocation.
-
-`gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff-index`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
+`gitTreeCompare.findRenames` Option to turn off rename detection when invoking `git diff`. Leaving this option on may have a performance impact for large diffs, especially when `autoRefresh` is enabled.
 
 `gitTreeCompare.openChanges` Option which decides what should happen when clicking on a file in the tree - either open the changes, or the file itself. Default is to open the changes. The other action can always be accessed via the file's context menu.
 
@@ -91,3 +93,5 @@ This feature works with both PRs from the same repository and PRs from forks.
 `gitTreeCompare.openChangesWithDifftool` When enabled, adds an "Open Changes with Difftool" command to the context menu for files. This command opens the changes in the external diff tool configured in Git (e.g., via `git config diff.tool <tool-name>`). Default is disabled. Note: This requires you to have a difftool configured in your Git settings.
 
 `gitTreeCompare.showDiffStats` When enabled, shows insertion/deletion counts (+N -N) next to each file name in the tree view. Default is disabled.
+
+`gitTreeCompare.multiRepositoryView` [EXPERIMENTAL] When enabled and the workspace contains more than one Git repository, the tree shows one expanded section per repository instead of comparing a single active repository. Each repository keeps its own comparison base, filter and checkbox state. Workspaces with a single repository are unaffected. Default is disabled.

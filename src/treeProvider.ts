@@ -5,25 +5,28 @@ import * as fs from 'fs'
 import { TreeDataProvider, TreeItem, TreeItemCollapsibleState,
          Uri, Disposable, EventEmitter, TextDocumentShowOptions,
          QuickPickItem, ProgressLocation, Memento, OutputChannel,
-         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor } from 'vscode'
+         workspace, commands, window, env, WorkspaceFoldersChangeEvent, TreeView, ThemeIcon, TreeItemCheckboxState, TreeCheckboxChangeEvent, authentication, TextEditor, RelativePattern,
+         FileDecorationProvider, FileDecoration, ProviderResult, ThemeColor } from 'vscode'
 import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
-         diffIndex, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
+         getDiffStatuses, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile,
          listWorktrees, IWorktreeInfo } from './gitHelper'
 import { tryDeepenForMergeBase } from './deepenHelper'
-import { debounce, throttle } from './git/decorators'
+import { throttle } from './git/decorators'
 import { normalizePath } from './fsUtils';
 import { API as GitAPI, Repository as GitAPIRepository } from './typings/git';
 import { Octokit } from '@octokit/rest';
 
 
 type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+type IconStyle = 'status' | 'fileTheme';
 
 const MAX_DIFF_ENTRIES = 10000;
+const TREE_RESOURCE_SCHEME = 'git-tree-compare';
 
 const STATUS_SORT_ORDER: { [key: string]: number } = {
     'M': 0, // Modified
@@ -49,6 +52,7 @@ class FileElement implements IDiffStatus {
         public dstRelPath: string,
         public status: StatusCode,
         public isSubmodule: boolean,
+        public repositoryRoot: string,
         public stats: IDiffStats | undefined = undefined) {}
 
     get label(): string {
@@ -60,21 +64,475 @@ class FolderElement {
     constructor(
         public label: string,
         public dstAbsPath: string,
-        public useFilesOutsideTreeRoot: boolean) {}
+        public useFilesOutsideTreeRoot: boolean,
+        public repositoryRoot: string) {}
 }
 
 class RepoRootElement extends FolderElement {
-    constructor(absPath: string) {
-        super('/', absPath, true);
+    constructor(repositoryRoot: string, absPath: string) {
+        super('/', absPath, true, repositoryRoot);
     }
+}
+
+class RepositoryElement {
+    constructor(public repositoryRoot: string, public label: string, public hasChildren: boolean,
+                public description: string | undefined = undefined,
+                public isWorktree: boolean = false) {}
 }
 
 class RefElement {
     constructor(public repositoryRoot: string, public refName: string, public hasChildren: boolean) {}
 }
 
-export type Element = FileElement | FolderElement | RepoRootElement | RefElement
+export type Element = FileElement | FolderElement | RepoRootElement | RepositoryElement | RefElement
 type FileSystemElement = FileElement | FolderElement
+
+/**
+ * The subset of the provider that a {@link RepositoryComparison} needs.
+ * Everything here is either global configuration or a global UI concern.
+ */
+interface IComparisonHost {
+    readonly gitApi: GitAPI;
+    readonly globalState: Memento;
+
+    readonly treeRootIsRepo: boolean;
+    readonly fullDiff: boolean;
+    readonly findRenames: boolean;
+    readonly renameThreshold: number;
+    readonly omitUntrackedFiles: boolean;
+    readonly omitUnstagedChanges: boolean;
+    readonly showDiffStats: boolean;
+    readonly resetCheckboxOnFileChange: boolean;
+    readonly viewAsList: boolean;
+    readonly sortOrder: SortOrder;
+
+    log(msg: string, error?: Error | undefined): void;
+    fireTreeDataChange(): void;
+}
+
+class ComparisonCreationCancelledError extends Error {
+    constructor() {
+        super('Repository comparison creation was cancelled');
+    }
+}
+
+/**
+ * Owns the complete state of the comparison for a single repository.
+ *
+ * There is one instance per repository, and no state is ever moved between
+ * instances. This is what makes concurrent work on different repositories
+ * safe: an operation holds on to its own instance across `await` boundaries,
+ * so it can no longer be retargeted by rendering or by another repository's
+ * refresh. It also scopes the `@throttle` on `updateDiff` to one repository,
+ * which would otherwise coalesce diffs across repositories.
+ */
+class RepositoryComparison {
+    treeRoot: FolderAbsPath;
+
+    baseRef = '';
+    mergeBase = '';
+    headLastChecked = new Date(0);
+    headName: string | undefined = undefined;
+    headCommit = '';
+
+    filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
+    filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
+
+    checkboxStates = new Map<string, CheckboxStateInfo>();
+    searchFilter: string | undefined = undefined;
+
+    private initialLoad: Promise<void> | undefined;
+    private loaded = false;
+
+    /** Whether refs and diff have been computed successfully at least once. */
+    get isLoaded(): boolean {
+        return this.loaded;
+    }
+
+    constructor(
+        private readonly host: IComparisonHost,
+        readonly repository: Repository,
+        readonly repoRoot: FolderAbsPath,
+        readonly absGitDir: string,
+        public workspaceFolder: string,
+        readonly isOutsideWorkspace: boolean) {
+        this.treeRoot = this.computeTreeRoot();
+    }
+
+    private computeTreeRoot(): FolderAbsPath {
+        const repoIsWorkspaceSubfolder = this.repoRoot.startsWith(this.workspaceFolder + path.sep);
+        if (this.host.treeRootIsRepo || repoIsWorkspaceSubfolder) {
+            return this.repoRoot;
+        }
+        return this.workspaceFolder;
+    }
+
+    /** Returns true if the tree root changed and the diff has to be recomputed. */
+    updateTreeRootFolder(): boolean {
+        const treeRoot = this.computeTreeRoot();
+        if (treeRoot === this.treeRoot) {
+            return false;
+        }
+        this.treeRoot = treeRoot;
+        return true;
+    }
+
+    /**
+     * Computes refs and diff once. Concurrent callers share the same promise,
+     * so expanding several repositories at the same time cannot start
+     * duplicate work. A failed load is retried on the next call.
+     */
+    ensureLoaded(): Promise<void> {
+        let load = this.initialLoad;
+        if (!load) {
+            load = (async () => {
+                await this.updateRefs();
+                await this.updateDiff(false);
+                this.loaded = true;
+            })();
+            this.initialLoad = load;
+            const pending = load;
+            pending.catch(() => {
+                if (this.initialLoad === pending) {
+                    this.initialLoad = undefined;
+                }
+            });
+        }
+        return load;
+    }
+
+    isInsideTreeRoot(folder: string): boolean {
+        return folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
+    }
+
+    findFile(dstAbsPath: string): IDiffStatus | undefined {
+        const folder = path.dirname(dstAbsPath);
+        const files = this.isInsideTreeRoot(folder) ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
+        return files.get(folder)?.find(file => file.dstAbsPath === dstAbsPath);
+    }
+
+    *iterFiles(withinFolder: string | undefined = undefined) {
+        for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
+            for (let [folder, files] of filesMap.entries()) {
+                // Compare whole path segments, otherwise "src/foo" would also
+                // match the sibling folder "src/foobar".
+                if (withinFolder && folder !== withinFolder &&
+                        !folder.startsWith(withinFolder + path.sep)) {
+                    continue;
+                }
+                for (let file of files) {
+                    if (!file.isSubmodule) {
+                        yield file;
+                    }
+                }
+            }
+        }
+    }
+
+    clearFiles() {
+        this.filesInsideTreeRoot = new Map();
+        this.filesOutsideTreeRoot = new Map();
+    }
+
+    private async getStoredBaseRef(): Promise<string | undefined> {
+        let baseRef = this.host.globalState.get<string>('baseRef_' + this.repoRoot);
+        if (baseRef) {
+            if (await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef)) {
+                this.host.log('Using stored base ref: ' + baseRef);
+            } else {
+                this.host.log('Not using non-existant stored base ref: ' + baseRef);
+                baseRef = undefined;
+            }
+        }
+        return baseRef;
+    }
+
+    async isRefExisting(refName: string): Promise<boolean> {
+        const refs = await this.repository.getRefs();
+        return refs.some(ref => ref.name === refName);
+    }
+
+    async isCommitExisting(id: string): Promise<boolean> {
+        try {
+            await this.repository.getCommit(id);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private updateStoredBaseRef(baseRef: string) {
+        this.host.globalState.update('baseRef_' + this.repoRoot, baseRef);
+    }
+
+    async isHeadChanged(): Promise<boolean> {
+        // Note that we can't rely on filesystem change notifications for .git/HEAD
+        // because the workspace root may be a subfolder of the repo root
+        // and change notifications are currently limited to workspace scope.
+        // See https://github.com/Microsoft/vscode/issues/3025.
+        const mtime = await getHeadModificationDate(this.absGitDir);
+        if (mtime > this.headLastChecked) {
+            return true;
+        }
+        // At this point we know that HEAD still points to the same symbolic ref or commit (if detached).
+        // If HEAD is not detached, check if the symbolic ref resolves to a different commit.
+        if (this.headName) {
+            // this.repository.getBranch() is not used here to avoid git invocation overhead
+            const headCommit = await getBranchCommit(this.headName, this.repository);
+            if (this.headCommit !== headCommit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async updateRefs(baseRef?: string): Promise<void> {
+        this.host.log(`Updating refs: ${this.repoRoot}`);
+        const headLastChecked = new Date();
+        const HEAD = await this.repository.getHEAD();
+        // if detached HEAD, then .commit exists, otherwise only .name
+        const headName = HEAD.name;
+        const headCommit = HEAD.commit || await getBranchCommit(HEAD.name!, this.repository);
+        if (baseRef) {
+            const exists = await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef);
+            if (!exists) {
+                // happens when branch was deleted
+                baseRef = undefined;
+            }
+        }
+        if (!baseRef) {
+            baseRef = await this.getStoredBaseRef();
+        }
+        if (!baseRef) {
+            baseRef = await getDefaultBranch(this.repository, HEAD);
+        }
+        if (!baseRef) {
+            if (HEAD.name) {
+                baseRef = HEAD.name;
+            } else {
+                // detached HEAD and no default branch was found
+                // pick an arbitrary ref as base, give preference to common refs
+                const refs = await this.repository.getRefs();
+                const commonRefs = ['origin/main', 'main', 'origin/master', 'master'];
+                const match = refs.find(ref => ref.name !== undefined && commonRefs.indexOf(ref.name) !== -1);
+                if (match) {
+                    baseRef = match.name;
+                } else if (refs.length > 0) {
+                    baseRef = refs[0].name;
+                }
+            }
+        }
+        if (!baseRef) {
+            // this should never happen
+            throw new Error('Base ref could not be determined!');
+        }
+        const HEADref: string = (HEAD.name || HEAD.commit)!;
+        let mergeBase = baseRef;
+        if (!this.host.fullDiff && baseRef != HEAD.name) {
+            // determine merge base to create more sensible/compact diff
+            let mergeBaseResult: string | undefined;
+            try {
+                mergeBaseResult = await this.repository.getMergeBase(HEADref, baseRef);
+            } catch (e) {
+                // sometimes the merge base cannot be determined
+                // this can be the case with shallow clones but may have other reasons
+            }
+            if (!mergeBaseResult) {
+                const gitApiRepo = this.host.gitApi.getRepository(Uri.file(this.repository.root));
+                if (gitApiRepo) {
+                    mergeBaseResult = await tryDeepenForMergeBase(
+                        this.repository, gitApiRepo, HEADref, HEAD.name, baseRef,
+                        msg => this.host.log(msg));
+                }
+            }
+            if (!mergeBaseResult) {
+                throw new Error(
+                    `No merge base could be found between "${HEADref}" and "${baseRef}". ` +
+                    `This can happen with shallow clones that don't have enough depth. ` +
+                    `Try fetching more history, or switch the diff mode to "full".`);
+            }
+            mergeBase = mergeBaseResult;
+        }
+        if (this.headName !== headName) {
+            this.host.log(`HEAD ref updated: ${this.headName} -> ${headName}`);
+            this.checkboxStates.clear();
+        }
+        if (this.headCommit !== headCommit) {
+            this.host.log(`HEAD ref commit updated: ${this.headCommit} -> ${headCommit}`);
+        }
+        if (this.baseRef !== baseRef) {
+            this.host.log(`Base ref updated: ${this.baseRef} -> ${baseRef}`);
+        }
+        if (!this.host.fullDiff && this.mergeBase !== mergeBase) {
+            this.host.log(`Merge base updated: ${this.mergeBase} -> ${mergeBase}`);
+        }
+        this.headLastChecked = headLastChecked;
+        this.headName = headName;
+        this.headCommit = headCommit;
+        this.baseRef = baseRef;
+        this.mergeBase = mergeBase;
+        this.updateStoredBaseRef(baseRef);
+    }
+
+    @throttle
+    async updateDiff(fireChangeEvents: boolean) {
+        if (!this.baseRef) {
+            await this.updateRefs();
+        }
+
+        const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
+        const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
+
+        const diff = await getDiffStatuses(this.repository, this.mergeBase, this.host.findRenames,
+            this.host.renameThreshold, this.host.omitUntrackedFiles, this.host.omitUnstagedChanges, this.host.showDiffStats);
+        const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
+        this.host.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
+
+        if (diff.length > MAX_DIFF_ENTRIES) {
+            const msg = `Too many changes to display (${diff.length}, limit is ${MAX_DIFF_ENTRIES}). Choose a closer base ref to reduce the number of changes.`;
+            this.host.log(msg);
+            window.showErrorMessage(msg);
+            this.clearFiles();
+            if (fireChangeEvents) {
+                this.host.fireTreeDataChange();
+            }
+            return;
+        }
+
+        const newFilePaths = new Set<string>();
+        // Collect files that need mtime checking for async batch processing
+        const filesToCheckMtime: Array<{filePath: string, stateInfo: CheckboxStateInfo}> = [];
+
+        for (const entry of diff) {
+            const folder = path.dirname(entry.dstAbsPath);
+
+            const isInsideTreeRoot = this.isInsideTreeRoot(folder);
+            const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+            const rootFolder = isInsideTreeRoot ? this.treeRoot : this.repoRoot;
+
+            if (files.size == 0) {
+                files.set(rootFolder, new Array());
+            }
+
+            // add this and all parent folders to the folder map
+            let currentFolder = folder
+            while (currentFolder != rootFolder) {
+                if (!files.has(currentFolder)) {
+                    files.set(currentFolder, new Array());
+                }
+                currentFolder = path.dirname(currentFolder)
+            }
+
+            const entries = files.get(folder)!;
+            entries.push(entry);
+
+            // Track new file paths
+            newFilePaths.add(entry.dstAbsPath);
+
+            // Collect checked files for mtime checking to reset if modified after being checked
+            if (this.host.resetCheckboxOnFileChange) {
+                const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
+                if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
+                    filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
+                }
+            }
+        }
+
+        // Check file modification times asynchronously in parallel
+        if (this.host.resetCheckboxOnFileChange && filesToCheckMtime.length > 0) {
+            const statPromises = filesToCheckMtime.map(async ({filePath, stateInfo}) => {
+                try {
+                    const stats = await fs.promises.stat(filePath);
+                    const fileMtime = stats.mtimeMs;
+
+                    // If file was modified after checkbox was checked, reset it
+                    if (fileMtime > stateInfo.timestamp) {
+                        return filePath;
+                    }
+                } catch (error: unknown) {
+                    // File might be deleted or inaccessible - this is expected in some cases
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    this.host.log(`Could not stat file for checkbox reset check: ${filePath}: ${errorMessage}`);
+                }
+                return null;
+            });
+
+            const pathsToReset = await Promise.all(statPromises);
+            const actualPathsToReset = pathsToReset.filter((filePath): filePath is string => filePath !== null);
+            actualPathsToReset.forEach(filePath => this.checkboxStates.delete(filePath));
+
+            // Fire tree refresh to update checkbox UI
+            if (actualPathsToReset.length > 0) {
+                this.host.fireTreeDataChange();
+            }
+        }
+
+        // Clear checkbox state for files that no longer exist in the diff
+        const pathsToDelete: string[] = [];
+        for (const [filePath] of this.checkboxStates) {
+            if (!newFilePaths.has(filePath)) {
+                pathsToDelete.push(filePath);
+            }
+        }
+        for (const filePath of pathsToDelete) {
+            this.checkboxStates.delete(filePath);
+        }
+
+        let treeHasChanged = false;
+        if (fireChangeEvents) {
+            const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
+                const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
+                const newFiles = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
+                const oldItems = oldFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
+                const newItems = newFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
+                for (const {files, items} of [{files: oldFiles, items: oldItems},
+                                              {files: newFiles, items: newItems}]) {
+                    // add direct subdirectories to items list
+                    for (const folder of files.keys()) {
+                        if (path.dirname(folder) === folderPath) {
+                            items.push(folder);
+                        }
+                    }
+                }
+                return !sortedArraysEqual(oldItems, newItems);
+            }
+
+            const treeRootChanged = !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
+            const mustAddOrRemoveRepoRootElement = !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
+            if (treeRootChanged || mustAddOrRemoveRepoRootElement) {
+                treeHasChanged = true;
+            } else {
+                for (const folder of filesInsideTreeRoot.keys()) {
+                    if (!this.filesInsideTreeRoot.has(folder) ||
+                            hasChanged(folder, true)) {
+                        treeHasChanged = true;
+                        break;
+                    }
+                }
+                if (!treeHasChanged) {
+                    for (const folder of filesOutsideTreeRoot.keys()) {
+                        if (!this.filesOutsideTreeRoot.has(folder) ||
+                                hasChanged(folder, false)) {
+                            treeHasChanged = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        this.filesInsideTreeRoot = filesInsideTreeRoot;
+        this.filesOutsideTreeRoot = filesOutsideTreeRoot;
+
+        // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
+        const needsRefreshForSorting = this.host.viewAsList && this.host.sortOrder === 'recentlyModified';
+
+        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting || this.host.showDiffStats)) {
+            this.host.log('Refreshing tree')
+            this.host.fireTreeDataChange();
+        }
+    }
+}
 
 class ChangeBaseRefItem implements QuickPickItem {
 	protected get shortCommit(): string { return (this.ref.commit || '').substr(0, 8); }
@@ -135,263 +593,511 @@ class ChangeWorktreeItem implements RepositoryPickItem {
 
 type FolderAbsPath = string;
 
-export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable {
+export class GitTreeCompareProvider implements TreeDataProvider<Element>, Disposable, IComparisonHost {
 
     // Events
     private _onDidChangeTreeData = new EventEmitter<Element | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-    private fireTreeDataChange() {
+    fireTreeDataChange() {
         this.parentMap.clear();
         this.elementMap.clear();
         this._onDidChangeTreeData.fire();
     }
 
     // Configuration options
-    private treeRootIsRepo: boolean;
+    treeRootIsRepo: boolean;
     private includeFilesOutsideWorkspaceFolderRoot: boolean;
     private openChangesOnSelect: boolean;
     private autoChangeRepository: boolean;
+    private multiRepositoryView: boolean;
     private autoRefresh: boolean;
-    private refreshIndex: boolean;
     private iconsMinimal: boolean;
-    private fullDiff: boolean;
-    private findRenames: boolean;
-    private renameThreshold: number;
+    private iconStyle: IconStyle;
+    fullDiff: boolean;
+    findRenames: boolean;
+    renameThreshold: number;
     private showCollapsed: boolean;
     private compactFolders: boolean;
     private showCheckboxes: boolean;
-    private resetCheckboxOnFileChange: boolean;
-    private omitUntrackedFiles: boolean;
-    private omitUnstagedChanges: boolean;
-    private sortOrder: SortOrder;
+    resetCheckboxOnFileChange: boolean;
+    omitUntrackedFiles: boolean;
+    omitUnstagedChanges: boolean;
+    sortOrder: SortOrder;
     private autoReveal: boolean;
-    private showDiffStats: boolean;
+    showDiffStats: boolean;
+
+    // One comparison per repository, keyed by canonical repository root.
+    private comparisons = new Map<FolderAbsPath, RepositoryComparison>();
+    // Workspace repository root -> linked worktree currently displayed for it.
+    // Only used in the repository-node layout, where each repository node shows
+    // one checkout of that repository.
+    private worktreeOverrides = new Map<FolderAbsPath, FolderAbsPath>();
+    // Maps any path used to look up a repository to its canonical root.
+    private rootAliases = new Map<string, FolderAbsPath>();
+    // In-flight creations, so concurrent lookups share one RepositoryComparison.
+    private pendingComparisons = new Map<string, Promise<RepositoryComparison>>();
+    // Incremented whenever repository membership is reset. Async creations
+    // must match the current generation before publishing any state.
+    private comparisonGeneration = 0;
+    // Load failures already reported to the user, to avoid repeating a dialog
+    // for the same persistent error on every tree refresh.
+    private reportedLoadErrors = new Map<string, string>();
+    // The repository shown when the tree does not show repository nodes.
+    private activeComparison: RepositoryComparison | undefined;
 
     // Dynamic options
-    private repository: Repository | undefined;
-    private baseRef: string;
-    private viewAsList = false;
+    viewAsList = false;
     private hideCheckedFiles = false;
-    private searchFilter: string | undefined;
-
-    // Static state of repository
-    private workspaceFolder: string;
-    private absGitDir: string;
-    private repoRoot: FolderAbsPath;
-
-    // Dynamic state of repository
-    private headLastChecked: Date;
-    private headName: string | undefined; // undefined if detached
-    private headCommit: string;
-
-    // Diff parameters, derived
-    private mergeBase: string;
-
-    // Diff results
-    private filesInsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
-    private filesOutsideTreeRoot: Map<FolderAbsPath, IDiffStatus[]>;
-
-    // UI parameters, derived
-    private treeRoot: FolderAbsPath;
 
     // UI state
     private treeView: TreeView<Element>;
-    private isPaused: boolean;
-    private checkboxStates: Map<string, CheckboxStateInfo> = new Map<string, CheckboxStateInfo>();
     private parentMap: Map<string, Element> = new Map();
     private elementMap: Map<string, FileElement> = new Map();
+    private pendingRefreshRoots = new Set<FolderAbsPath>();
+    private pendingRefreshTimer: NodeJS.Timeout | undefined;
+    private refreshInProgress = false;
+    private disposed = false;
+    // Incremented on each "Collapse All". Changing folder ids makes VS Code
+    // apply their collapsed state instead of restoring their previous state.
+    // The ref keeps its stable id and remains expanded.
+    private collapseGeneration = 0;
 
     // Other
     private readonly disposables: Disposable[] = [];
+    private extraRepositoryWatchers = new Map<FolderAbsPath, Disposable>();
+    private repositoryUiSubscriptions = new Map<string, Disposable>();
 
-    constructor(private readonly git: Git, private readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, private readonly globalState: Memento,
+    constructor(private readonly git: Git, readonly gitApi: GitAPI, private readonly outputChannel: OutputChannel, readonly globalState: Memento,
                 private readonly asAbsolutePath: (relPath: string) => string) {
         this.readConfig();
+    }
+
+    /**
+     * Single source of truth for the tree layout: repository nodes are only
+     * shown when the feature is enabled *and* there is more than one
+     * repository. A single repository always uses the original layout.
+     */
+    private showRepositoryNodes(): boolean {
+        return this.multiRepositoryView && this.getRepositoryRoots().length > 1;
+    }
+
+    /** Workspace repository roots, de-duplicated by canonical root. */
+    private getRepositoryRoots(selectedFirst=false): string[] {
+        const roots = getGitRepositoryFolders(this.gitApi, selectedFirst).map(normalizePath);
+        const uniqueRoots: string[] = [];
+        const seen = new Set<string>();
+        for (const root of roots) {
+            const canonical = this.rootAliases.get(root) ?? root;
+            if (!seen.has(canonical)) {
+                uniqueRoots.push(root);
+                seen.add(canonical);
+            }
+        }
+        return uniqueRoots;
+    }
+
+    private getExistingComparison(repositoryRoot: string): RepositoryComparison | undefined {
+        const normalized = normalizePath(repositoryRoot);
+        const canonical = this.rootAliases.get(normalized) ?? normalized;
+        return this.comparisons.get(canonical);
+    }
+
+    /**
+     * Returns the comparison for a repository, creating it if necessary.
+     * Concurrent calls for the same repository share a single creation, so a
+     * repository can never end up with two diverging comparison objects.
+     */
+    private async getComparison(repositoryRoot: string): Promise<RepositoryComparison> {
+        const existing = this.getExistingComparison(repositoryRoot);
+        if (existing) {
+            return existing;
+        }
+        const requested = normalizePath(repositoryRoot);
+        let pending = this.pendingComparisons.get(requested);
+        if (!pending) {
+            pending = this.createComparison(requested, this.comparisonGeneration);
+            this.pendingComparisons.set(requested, pending);
+            const creation = pending;
+            const settled = () => {
+                if (this.pendingComparisons.get(requested) === creation) {
+                    this.pendingComparisons.delete(requested);
+                }
+            };
+            pending.then(settled, settled);
+        }
+        return pending;
+    }
+
+    private invalidateComparisonCreations() {
+        this.comparisonGeneration++;
+        this.pendingComparisons.clear();
+    }
+
+    /** Returns a fully loaded comparison, or undefined if the repository is unusable. */
+    private async loadComparison(repositoryRoot: string): Promise<RepositoryComparison | undefined> {
+        const key = normalizePath(repositoryRoot);
+        try {
+            const comparison = await this.getComparison(repositoryRoot);
+            await comparison.ensureLoaded();
+            this.reportedLoadErrors.delete(key);
+            return comparison;
+        } catch (e: any) {
+            if (e instanceof ComparisonCreationCancelledError) {
+                return undefined;
+            }
+            const msg = `Comparing repository ${path.basename(key)} failed`;
+            this.log(`${msg} (${key})`, e);
+            // getChildren() retries on every tree refresh, so report a given
+            // failure only once, until the repository loads again or starts
+            // failing for a different reason.
+            if (this.reportedLoadErrors.get(key) !== e.message) {
+                this.reportedLoadErrors.set(key, e.message);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
+            return undefined;
+        }
+    }
+
+    /**
+     * Resolves which repository a command acts on. Commands invoked from the
+     * tree carry the repository in their element. Commands invoked from the
+     * command palette use the active repository, or ask when several
+     * repositories are shown, instead of silently picking one.
+     */
+    private async resolveRepositoryRoot(element?: Element): Promise<string | undefined> {
+        if (element) {
+            return element.repositoryRoot;
+        }
+        if (!this.showRepositoryNodes()) {
+            if (this.activeComparison) {
+                return this.activeComparison.repoRoot;
+            }
+            const roots = this.getRepositoryRoots(true);
+            return roots[0];
+        }
+        const picks = this.getRepositoryRoots(true).map(root => new ChangeRepositoryItem(root));
+        const choice = await window.showQuickPick<ChangeRepositoryItem>(picks,
+            { placeHolder: 'Select a repository' });
+        return choice?.repositoryRoot;
+    }
+
+    private async resolveComparison(element?: Element): Promise<RepositoryComparison | undefined> {
+        const repositoryRoot = await this.resolveRepositoryRoot(element);
+        return repositoryRoot ? await this.loadComparison(repositoryRoot) : undefined;
+    }
+
+    /**
+     * Finds the repository a changed path belongs to. This deliberately
+     * searches known comparisons rather than workspace repositories, so that
+     * repositories outside the workspace (linked worktrees) and repositories
+     * whose git dir lives elsewhere keep receiving auto refreshes.
+     */
+    private findComparisonForPath(absPath: string): RepositoryComparison | undefined {
+        const normPath = normalizePath(absPath);
+        let best: RepositoryComparison | undefined;
+        let bestLength = -1;
+        for (const comparison of this.comparisons.values()) {
+            const bases = [comparison.repoRoot, normalizePath(comparison.absGitDir)];
+            for (const base of bases) {
+                if (normPath !== base && !normPath.startsWith(base + path.sep)) {
+                    continue;
+                }
+                if (base.length > bestLength) {
+                    bestLength = base.length;
+                    best = comparison;
+                }
+            }
+        }
+        return best;
     }
 
     async init(treeView: TreeView<Element>) {
         this.treeView = treeView
 
-        // use arbitrary repository at start if there are multiple (prefer selected ones)
-        const gitRepos = getGitRepositoryFolders(this.gitApi, true);
-        if (gitRepos.length > 0) {
-            await this.changeRepository(gitRepos[0]);
+        // Use the original single-repository behavior unless the tree actually
+        // shows repository nodes.
+        if (!this.showRepositoryNodes()) {
+            const gitRepos = this.getRepositoryRoots(true);
+            if (gitRepos.length > 0) {
+                await this.changeRepository(gitRepos[0]);
+            }
         }
 
         this.disposables.push(workspace.onDidChangeConfiguration(this.handleConfigChange, this));
         this.disposables.push(workspace.onDidChangeWorkspaceFolders(this.handleWorkspaceFoldersChanged, this));
+        this.disposables.push(window.registerFileDecorationProvider(new GitTreeCompareFileDecorationProvider()));
         this.disposables.push(this.gitApi.onDidOpenRepository(this.handleRepositoryOpened, this));
+        this.disposables.push(this.gitApi.onDidCloseRepository(this.handleRepositoryClosed, this));
         for (const repository of this.gitApi.repositories) {
-            this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
-        }
-
-        const isRelevantChange = (uri: Uri) => {
-            if (uri.scheme != 'file') {
-                return false;
-            }
-            // non-git change
-            if (!/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path)) {
-                return true;
-            }
-            // git ref change
-            if (/\/\.git\/refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path)) {
-                return true;
-            }
-            // git index change
-            if (/\/\.git\/index$/.test(uri.path)) {
-                return true;
-            }
-            this.log(`Ignoring irrelevant change: ${uri.fsPath}`);
-            return false;
+            this.watchRepositoryUi(repository);
         }
 
         const fsWatcher = workspace.createFileSystemWatcher('**');
         this.disposables.push(fsWatcher);
         const onWorkspaceChange = anyEvent(fsWatcher.onDidChange, fsWatcher.onDidCreate, fsWatcher.onDidDelete);
-        const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, isRelevantChange);
+        const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, uri => this.isRelevantChange(uri));
         this.disposables.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
 
         this.disposables.push(treeView.onDidChangeCheckboxState(this.handleChangeCheckboxState, this));
         this.disposables.push(window.onDidChangeActiveTextEditor(this.handleActiveEditorChange, this));
+        this.disposables.push(new Disposable(() => {
+            this.disposed = true;
+            if (this.pendingRefreshTimer) {
+                clearTimeout(this.pendingRefreshTimer);
+                this.pendingRefreshTimer = undefined;
+            }
+        }));
+
+        this.updateViewState();
     }
 
-    async setRepository(repositoryRoot: string) {
-        const dotGit = await this.git.getRepositoryDotGit(repositoryRoot);
-        const repository = this.git.open(repositoryRoot, dotGit);
+    /**
+     * If a repository is covered by multiple workspace folders, the deepest one
+     * is used. `outsideWorkspace` repositories (linked worktrees) fall back to
+     * the repository root.
+     * TODO let the user choose which one
+     */
+    private pickWorkspaceFolder(repoRoot: string, outsideWorkspace: boolean,
+                                workspaceFolders = getWorkspaceFolders(repoRoot)): string {
+        if (outsideWorkspace || workspaceFolders.length === 0) {
+            return repoRoot;
+        }
+        // Sort descending by folder depth
+        const sorted = [...workspaceFolders].sort((a, b) => {
+            const aDepth = a.uri.fsPath.split(path.sep).length;
+            const bDepth = b.uri.fsPath.split(path.sep).length;
+            return bDepth - aDepth;
+        });
+        return normalizePath(sorted[0].uri.fsPath);
+    }
+
+    private async createComparison(repositoryRoot: string, generation: number): Promise<RepositoryComparison> {
+        const requestedRepositoryRoot = normalizePath(repositoryRoot);
+        const actualRepositoryRoot = normalizePath(await this.git.getRepositoryRoot(requestedRepositoryRoot));
+        const dotGit = await this.git.getRepositoryDotGit(actualRepositoryRoot);
+        const repository = this.git.open(actualRepositoryRoot, dotGit);
         const absGitDir = await getAbsGitDir(repository);
         const repoRoot = normalizePath(repository.root);
 
         const workspaceFolders = getWorkspaceFolders(repoRoot);
-        if (workspaceFolders.length == 0) {
-            const worktrees = this.repository ? await listWorktrees(this.repository) : [];
+        const outsideWorkspace = workspaceFolders.length == 0;
+        if (outsideWorkspace) {
+            const worktrees = await listWorktrees(repository);
             const isLinkedWorktree = worktrees.some(wt => wt.path === repoRoot);
             if (!isLinkedWorktree) {
                 throw new Error(`Could not find any workspace folder for ${repositoryRoot}`);
             }
-            this.workspaceFolder = repoRoot;
-        } else {
-            // Sort descending by folder depth
-            workspaceFolders.sort((a, b) => {
-                const aDepth = a.uri.fsPath.split(path.sep).length;
-                const bDepth = b.uri.fsPath.split(path.sep).length;
-                return bDepth - aDepth;
-            });
-            // If repo appears in multiple workspace folders, pick the deepest one.
-            // TODO let the user choose which one
-            this.workspaceFolder = normalizePath(workspaceFolders[0].uri.fsPath);
+            workspaceFolders.push({ uri: Uri.file(repoRoot), name: path.basename(repoRoot), index: 0 });
         }
 
-        this.repository = repository;
-        this.absGitDir = absGitDir;
-        this.repoRoot = repoRoot;
-        this.updateTreeRootFolder();
-        this.log('Using repository: ' + this.repoRoot);
+        const workspaceFolder = this.pickWorkspaceFolder(repoRoot, outsideWorkspace, workspaceFolders);
 
-        this.updateTreeTitle();
-        this.updateWorktreeContext();
+        if (generation !== this.comparisonGeneration) {
+            throw new ComparisonCreationCancelledError();
+        }
+
+        this.rootAliases.set(requestedRepositoryRoot, repoRoot);
+        this.rootAliases.set(repoRoot, repoRoot);
+
+        // A different alias may have created the comparison while we awaited.
+        const existing = this.comparisons.get(repoRoot);
+        if (existing) {
+            return existing;
+        }
+
+        const comparison = new RepositoryComparison(
+            this, repository, repoRoot, absGitDir, workspaceFolder, outsideWorkspace);
+        this.comparisons.set(repoRoot, comparison);
+        this.log('Using repository: ' + repoRoot);
+        this.addExtraRepositoryWatcher(comparison);
+        return comparison;
     }
 
-    private updateWorktreeContext() {
-        const workspaceRoot = this.getWorkspaceRepositoryRoot();
-        const viewingWorktree = workspaceRoot !== undefined && this.repoRoot !== workspaceRoot;
-        commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', viewingWorktree);
-        if (this.repository) {
-            listWorktrees(this.repository).then(worktrees => {
-                commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', worktrees.length > 1);
-            });
-        } else {
+    /**
+     * Publishes everything derived from the current layout: the view title and
+     * the context keys that menus depend on. Menu visibility must be driven by
+     * `showRepositoryNodes` rather than by the raw setting or by the git
+     * extension's repository count, because neither of those matches the
+     * layout this provider actually renders.
+     */
+    /**
+     * Worktree switching operates on the single active comparison, so it is
+     * only offered in the single-repository layout. In the repository-node
+     * layout there is no unambiguous "current" repository to switch.
+     */
+    private updateWorktreeContext(showRepositoryNodes: boolean) {
+        const comparison = showRepositoryNodes ? undefined : this.activeComparison;
+        if (!comparison) {
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
             commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
+            return;
         }
+        listWorktrees(comparison.repository).then(worktrees => {
+            // The layout or active repository may have changed while listing.
+            if (this.disposed || this.activeComparison !== comparison || this.showRepositoryNodes()) {
+                return;
+            }
+            const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
+            const viewingWorktree = workspaceRoot !== undefined &&
+                comparison.repoRoot !== workspaceRoot;
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', viewingWorktree);
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', worktrees.length > 1);
+        }, e => {
+            this.log('Listing the worktrees failed', e);
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
+        });
     }
 
-    private updateTreeTitle() {
-        if (!this.repository) {
+    private updateViewState() {
+        const showRepositoryNodes = this.showRepositoryNodes();
+        commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', showRepositoryNodes);
+
+        const isFiltered = showRepositoryNodes
+            ? [...this.comparisons.values()].some(c => c.searchFilter)
+            : !!this.activeComparison?.searchFilter;
+        commands.executeCommand('setContext', NAMESPACE + '.isFiltered', isFiltered);
+
+        this.updateWorktreeContext(showRepositoryNodes);
+
+        if (!this.treeView) {
+            return;
+        }
+        if (showRepositoryNodes) {
+            this.treeView.title = isFiltered ? 'Git Tree Compare (filtered)' : 'Git Tree Compare';
+            return;
+        }
+        const comparison = this.activeComparison;
+        if (!comparison) {
             this.treeView.title = 'none';
             return;
         }
-        const repoName = path.basename(this.repoRoot);
-        if (this.searchFilter) {
-            this.treeView.title = `${repoName} (filtered)`;
-        } else {
-            this.treeView.title = repoName;
-        }
+        const repoName = path.basename(comparison.repoRoot);
+        this.treeView.title = comparison.searchFilter ? `${repoName} (filtered)` : repoName;
     }
 
     async unsetRepository() {
-        this.repository = undefined;
+        this.invalidateComparisonCreations();
+        this.activeComparison = undefined;
+        this.comparisons.clear();
+        this.rootAliases.clear();
+        this.reportedLoadErrors.clear();
+        this.disposeExtraRepositoryWatchers();
         this.fireTreeDataChange();
         this.log('No repository selected');
 
-        this.updateTreeTitle();
+        this.updateViewState();
     }
 
     async changeRepository(repositoryRoot: string) {
+        let comparison: RepositoryComparison;
         try {
-            await this.setRepository(repositoryRoot);
-            await this.updateRefs();
-            await this.updateDiff(false);
+            comparison = await this.getComparison(repositoryRoot);
         } catch (e: any) {
+            if (e instanceof ComparisonCreationCancelledError) {
+                return;
+            }
             let msg = 'Changing the repository failed';
             this.log(msg, e);
             window.showErrorMessage(`${msg}: ${e.message}`);
             return;
         }
-        this.checkboxStates.clear();
-        this.searchFilter = undefined;
-        this.updateFilterContext();
+        // Select the repository even if loading fails, so that a transient
+        // error does not leave the view stuck on no repository at all.
+        this.activeComparison = comparison;
+        if (comparison.isLoaded) {
+            // ensureLoaded() is a no-op once loaded, so refresh explicitly to
+            // avoid showing a stale diff when switching back to a repository.
+            await this.refreshComparison(comparison, true);
+        } else {
+            try {
+                await comparison.ensureLoaded();
+            } catch (e: any) {
+                let msg = 'Changing the repository failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
+        }
+        this.updateViewState();
         this.fireTreeDataChange();
     }
 
-    private getWorkspaceRepositoryRoot(): string | undefined {
-        const repos = getGitRepositoryFolders(this.gitApi, true);
-        if (repos.length > 0) {
-            return normalizePath(repos[0]);
+    /** The checkout currently displayed for a workspace repository root. */
+    private displayedRoot(workspaceRoot: string): string {
+        return this.worktreeOverrides.get(normalizePath(workspaceRoot)) ?? normalizePath(workspaceRoot);
+    }
+
+    /**
+     * The workspace folder that is a worktree of the repository the given
+     * worktree list belongs to, i.e. where "the working tree" is for that
+     * repository. Scoped to that repository's worktrees rather than the global
+     * repository list, so that a multi-root workspace does not resolve to an
+     * unrelated repository.
+     */
+    private findWorkspaceWorktreeRoot(worktrees: IWorktreeInfo[]): string | undefined {
+        const worktreePaths = new Set(worktrees.map(wt => normalizePath(wt.path)));
+        for (const root of this.getRepositoryRoots(true)) {
+            const normalized = normalizePath(root);
+            if (worktreePaths.has(normalized)) {
+                return normalized;
+            }
         }
         return undefined;
     }
 
-    async switchToWorkingTree() {
-        const workspaceRoot = this.getWorkspaceRepositoryRoot();
+    private async listWorktreesOf(comparison: RepositoryComparison): Promise<IWorktreeInfo[] | undefined> {
+        try {
+            return await listWorktrees(comparison.repository);
+        } catch (e: any) {
+            const msg = 'Listing the worktrees failed';
+            this.log(msg, e);
+            window.showErrorMessage(`${msg}: ${e.message}`);
+            return undefined;
+        }
+    }
+
+    async switchToWorkingTree(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+        const worktrees = await this.listWorktreesOf(comparison);
+        if (!worktrees) {
+            return;
+        }
+        const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
         if (!workspaceRoot) {
             window.showErrorMessage('No workspace repository found');
             return;
         }
-        if (workspaceRoot === this.repoRoot) {
+        if (workspaceRoot === comparison.repoRoot) {
             return;
         }
-        await this.changeRepository(workspaceRoot);
+        await this.showWorktree(workspaceRoot, workspaceRoot);
     }
 
-    async promptChangeRepository() {
-        const gitRepos = getGitRepositoryFolders(this.gitApi);
-        const gitReposWithoutCurrent = gitRepos.filter(w => this.repoRoot !== w);
-        const picks = gitReposWithoutCurrent.map(r => new ChangeRepositoryItem(r));
-        const placeHolder = 'Select a repository';
-        const choice = await window.showQuickPick<ChangeRepositoryItem>(picks, { placeHolder });
-
-        if (!choice) {
-            return;
-        }
-
-        await this.changeRepository(choice.repositoryRoot);
-    }
-
-    async promptChangeWorktree() {
-        if (!this.repository) {
+    async promptChangeWorktree(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
             window.showErrorMessage('No repository selected');
             return;
         }
 
-        const workspaceRoot = this.getWorkspaceRepositoryRoot();
-        const worktrees = await listWorktrees(this.repository);
+        const worktrees = await this.listWorktreesOf(comparison);
+        if (!worktrees) {
+            return;
+        }
+        const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
+
         let picks: RepositoryPickItem[] = worktrees
-            .filter(wt => wt.path !== this.repoRoot && wt.path !== workspaceRoot)
+            .filter(wt => wt.path !== comparison.repoRoot && wt.path !== workspaceRoot)
             .map(wt => new ChangeWorktreeItem(wt));
 
         picks.sort((a, b) => a.label.localeCompare(b.label));
 
-        if (workspaceRoot && workspaceRoot !== this.repoRoot) {
+        if (workspaceRoot && workspaceRoot !== comparison.repoRoot) {
             picks = [new WorkingTreePickItem(workspaceRoot), ...picks];
         }
 
@@ -404,61 +1110,297 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (!choice) {
             return;
         }
-        await this.changeRepository(choice.repositoryPath);
+        await this.showWorktree(choice.repositoryPath, workspaceRoot);
+    }
+
+    /**
+     * Displays a checkout of a repository. In the repository-node layout the
+     * repository keeps its node and only the checkout it shows changes, because
+     * the nodes are the workspace repositories. Otherwise the view as a whole
+     * switches to that checkout.
+     */
+    private async showWorktree(worktreeRoot: string, workspaceRoot: string | undefined) {
+        if (!this.showRepositoryNodes()) {
+            await this.changeRepository(worktreeRoot);
+            return;
+        }
+        if (!workspaceRoot) {
+            window.showErrorMessage('No workspace repository found');
+            return;
+        }
+        const key = normalizePath(workspaceRoot);
+        if (normalizePath(worktreeRoot) === key) {
+            this.worktreeOverrides.delete(key);
+        } else {
+            this.worktreeOverrides.set(key, normalizePath(worktreeRoot));
+            try {
+                // Surfaces load errors here rather than as an empty node.
+                await this.loadComparison(worktreeRoot);
+            } catch (e: any) {
+                this.worktreeOverrides.delete(key);
+                const msg = 'Changing the worktree failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+                return;
+            }
+        }
+        this.updateViewState();
+        this.fireTreeDataChange();
+    }
+
+    async promptChangeRepository() {
+        const activeRoot = this.activeComparison?.repoRoot;
+        const gitRepos = this.getRepositoryRoots();
+        const gitReposWithoutCurrent = gitRepos.filter(
+            root => (this.rootAliases.get(root) ?? root) !== activeRoot);
+        const picks = gitReposWithoutCurrent.map(r => new ChangeRepositoryItem(r));
+        const placeHolder = 'Select a repository';
+        const choice = await window.showQuickPick<ChangeRepositoryItem>(picks, { placeHolder });
+
+        if (!choice) {
+            return;
+        }
+
+        await this.changeRepository(choice.repositoryRoot);
     }
 
     private async handleRepositoryOpened(repository: GitAPIRepository) {
-        if (this.repository === undefined) {
+        // Subscribe before awaiting so that a close arriving in the meantime
+        // disposes the subscription instead of leaving it behind.
+        this.watchRepositoryUi(repository);
+        if (!this.showRepositoryNodes() && this.activeComparison === undefined) {
             await this.changeRepository(repository.rootUri.fsPath);
+        } else {
+            this.updateViewState();
+            this.fireTreeDataChange();
         }
-        this.disposables.push(repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
+    }
+
+    private watchRepositoryUi(repository: GitAPIRepository) {
+        const repoRoot = normalizePath(repository.rootUri.fsPath);
+        this.repositoryUiSubscriptions.get(repoRoot)?.dispose();
+        this.repositoryUiSubscriptions.set(repoRoot,
+            repository.ui.onDidChange(() => this.handleRepositoryUiChange(repository)));
     }
 
     private async handleRepositoryUiChange(repository: GitAPIRepository) {
         if (!this.autoChangeRepository || !repository.ui.selected) {
             return;
         }
-        let repoRoot = repository.rootUri.fsPath;
-        if (!getGitRepositoryFolders(this.gitApi).includes(repoRoot)) {
+        // Following the SCM selection is meaningless when all repositories are
+        // shown side by side.
+        if (this.showRepositoryNodes()) {
             return;
         }
-        repoRoot = normalizePath(repoRoot);
-        if (repoRoot === this.workspaceFolder) {
+        const repoRoot = normalizePath(repository.rootUri.fsPath);
+        const inWorkspace = getGitRepositoryFolders(this.gitApi).map(normalizePath).includes(repoRoot);
+        if (!inWorkspace) {
+            const active = this.activeComparison;
+            const worktrees = active ? await listWorktrees(active.repository) : [];
+            if (!worktrees.some(wt => wt.path === repoRoot)) {
+                return;
+            }
+        }
+        if (repoRoot === this.activeComparison?.repoRoot) {
             return;
         }
         this.log(`SCM repository change detected - changing repository: ${repoRoot}`);
         await this.changeRepository(repoRoot);
     }
 
+    private isRelevantChange(uri: Uri): boolean {
+        if (uri.scheme != 'file') {
+            return false;
+        }
+        // non-git change
+        if (!/\/\.git\//.test(uri.path) && !/\/\.git$/.test(uri.path)) {
+            return true;
+        }
+        // git ref change (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?refs\//.test(uri.path) && !/\/\.git\/refs\/remotes\/.+\/actions/.test(uri.path)) {
+            return true;
+        }
+        // git HEAD change, e.g. on branch switch (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?HEAD$/.test(uri.path)) {
+            return true;
+        }
+        // git index change (including linked worktrees)
+        if (/\/\.git\/(?:worktrees\/[^/]+\/)?index$/.test(uri.path)) {
+            return true;
+        }
+        this.log(`Ignoring irrelevant change: ${uri.fsPath}`);
+        return false;
+    }
+
+    /**
+     * Watches repositories that the workspace-wide watcher does not cover:
+     * repositories outside the workspace, and git dirs that live outside their
+     * repository root (linked worktrees).
+     */
+    private addExtraRepositoryWatcher(comparison: RepositoryComparison) {
+        if (this.extraRepositoryWatchers.has(comparison.repoRoot)) {
+            return;
+        }
+        const watchers: Disposable[] = [];
+        const subscriptions: Disposable[] = [];
+        const watch = (folder: string) => {
+            const watcher = workspace.createFileSystemWatcher(new RelativePattern(Uri.file(folder), '**'));
+            watchers.push(watcher);
+            const onWorkspaceChange = anyEvent(watcher.onDidChange, watcher.onDidCreate, watcher.onDidDelete);
+            const onRelevantWorkspaceChange = filterEvent(onWorkspaceChange, uri => this.isRelevantChange(uri));
+            subscriptions.push(onRelevantWorkspaceChange(this.handleWorkspaceChange, this));
+        };
+
+        if (comparison.isOutsideWorkspace) {
+            watch(comparison.repoRoot);
+        }
+        const normalizedGitDir = normalizePath(comparison.absGitDir);
+        if (normalizedGitDir !== comparison.repoRoot && !normalizedGitDir.startsWith(comparison.repoRoot + path.sep)) {
+            watch(comparison.absGitDir);
+        }
+
+        if (watchers.length === 0) {
+            return;
+        }
+        this.extraRepositoryWatchers.set(comparison.repoRoot, Disposable.from(...watchers, ...subscriptions));
+    }
+
+    private disposeExtraRepositoryWatchers() {
+        for (const watcher of this.extraRepositoryWatchers.values()) {
+            watcher.dispose();
+        }
+        this.extraRepositoryWatchers.clear();
+    }
+
+    /** Forgets a comparison and everything attached to it. */
+    private removeComparison(comparison: RepositoryComparison) {
+        this.invalidateComparisonCreations();
+        const repoRoot = comparison.repoRoot;
+        this.comparisons.delete(repoRoot);
+        this.extraRepositoryWatchers.get(repoRoot)?.dispose();
+        this.extraRepositoryWatchers.delete(repoRoot);
+        this.pendingRefreshRoots.delete(repoRoot);
+        this.reportedLoadErrors.delete(repoRoot);
+        for (const [alias, canonical] of [...this.rootAliases]) {
+            if (canonical === repoRoot) {
+                this.rootAliases.delete(alias);
+            }
+        }
+        if (this.activeComparison === comparison) {
+            this.activeComparison = undefined;
+        }
+    }
+
+    /** Drops comparisons for repositories that are no longer in the workspace. */
+    private pruneComparisons() {
+        const liveRoots = new Set(this.getRepositoryRoots().map(root => this.rootAliases.get(root) ?? root));
+        for (const workspaceRoot of [...this.worktreeOverrides.keys()]) {
+            if (!liveRoots.has(this.rootAliases.get(workspaceRoot) ?? workspaceRoot)) {
+                this.worktreeOverrides.delete(workspaceRoot);
+            }
+        }
+        const displayedWorktrees = new Set(this.worktreeOverrides.values());
+        for (const [repoRoot, comparison] of [...this.comparisons]) {
+            // Repositories outside the workspace (linked worktrees) never appear
+            // in the workspace repository list, so keep them while they are active
+            // or displayed by a repository node.
+            const keep = liveRoots.has(repoRoot) || displayedWorktrees.has(repoRoot) ||
+                (comparison === this.activeComparison && comparison.isOutsideWorkspace);
+            if (keep) {
+                continue;
+            }
+            this.removeComparison(comparison);
+        }
+    }
+
+    private async handleRepositoryClosed(repository: GitAPIRepository) {
+        // Also invalidates a creation that has not published its comparison yet.
+        this.invalidateComparisonCreations();
+        const repoRoot = normalizePath(repository.rootUri.fsPath);
+        this.repositoryUiSubscriptions.get(repoRoot)?.dispose();
+        this.repositoryUiSubscriptions.delete(repoRoot);
+        const comparison = this.getExistingComparison(repository.rootUri.fsPath);
+        if (comparison) {
+            this.removeComparison(comparison);
+        }
+        if (!this.showRepositoryNodes() && !this.activeComparison) {
+            const gitRepos = this.getRepositoryRoots(true);
+            if (gitRepos.length > 0) {
+                await this.changeRepository(gitRepos[0]);
+            } else {
+                await this.unsetRepository();
+            }
+            return;
+        }
+        this.updateViewState();
+        this.fireTreeDataChange();
+    }
+
     private async handleWorkspaceFoldersChanged(e: WorkspaceFoldersChangeEvent) {
-        // If the folder got removed that was currently active in the diff,
-        // then pick an arbitrary new one.
-        for (var removedFolder of e.removed) {
-            if (normalizePath(removedFolder.uri.fsPath) === this.workspaceFolder) {
-                const gitRepos = getGitRepositoryFolders(this.gitApi, true);
+        if (e.removed.length > 0) {
+            this.invalidateComparisonCreations();
+            this.pruneComparisons();
+        }
+
+        // A repository can be covered by several workspace folders. If the one
+        // that was used as tree root got removed, the comparison survives but
+        // has to fall back to another folder of the same repository.
+        const staleComparisons: RepositoryComparison[] = [];
+        for (const comparison of this.comparisons.values()) {
+            const workspaceFolder = this.pickWorkspaceFolder(
+                comparison.repoRoot, comparison.isOutsideWorkspace);
+            if (workspaceFolder === comparison.workspaceFolder) {
+                continue;
+            }
+            comparison.workspaceFolder = workspaceFolder;
+            const treeRootChanged = comparison.updateTreeRootFolder();
+            // Comparisons that have not been loaded yet pick up the new tree
+            // root when they are first expanded.
+            if (treeRootChanged && comparison.isLoaded) {
+                staleComparisons.push(comparison);
+            }
+        }
+        for (const comparison of staleComparisons) {
+            try {
+                await comparison.updateDiff(false);
+            } catch (e: any) {
+                this.log('Updating the git tree failed', e);
+                comparison.clearFiles();
+            }
+        }
+
+        if (!this.showRepositoryNodes()) {
+            // If the repository that was active got removed, or none was
+            // selected yet, then pick an arbitrary new one.
+            const active = this.activeComparison;
+            if (!active || !this.comparisons.has(active.repoRoot)) {
+                this.activeComparison = undefined;
+                const gitRepos = this.getRepositoryRoots(true);
                 if (gitRepos.length > 0) {
-                    const newFolder = gitRepos[0];
-                    await this.changeRepository(newFolder);
-                } else {
+                    await this.changeRepository(gitRepos[0]);
+                    return;
+                }
+                if (e.removed.length > 0) {
                     await this.unsetRepository();
+                    return;
                 }
             }
         }
-        // If no repository is selected but new folders were added,
-        // then pick an arbitrary new one.
-        if (!this.repository && e.added) {
-            const gitRepos = getGitRepositoryFolders(this.gitApi, true);
-            if (gitRepos.length > 0) {
-                const newFolder = gitRepos[0];
-                await this.changeRepository(newFolder);
-            }
+
+        if (e.removed.length > 0 || e.added.length > 0) {
+            this.updateViewState();
+            this.fireTreeDataChange();
         }
     }
 
     private async handleChangeCheckboxState(e: TreeCheckboxChangeEvent<Element>) {
         for (let [element, state] of e.items) {
             if (element instanceof FileElement || element instanceof FolderElement) {
-                this.checkboxStates.set(element.dstAbsPath, {
+                const comparison = this.getExistingComparison(element.repositoryRoot);
+                if (!comparison) {
+                    continue;
+                }
+                comparison.checkboxStates.set(element.dstAbsPath, {
                     state: state,
                     timestamp: Date.now()
                 });
@@ -485,21 +1427,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    private log(msg: string, error: Error | undefined=undefined) {
+    log(msg: string, error: Error | undefined=undefined) {
         if (error) {
             console.warn(msg, error);
             msg = `${msg}: ${error.message}`;
         }
         this.outputChannel.appendLine(msg);
-    }
-
-    private updateTreeRootFolder() {
-        const repoIsWorkspaceSubfolder = this.repoRoot.startsWith(this.workspaceFolder + path.sep);
-        if (this.treeRootIsRepo || repoIsWorkspaceSubfolder) {
-            this.treeRoot = this.repoRoot;
-        } else {
-            this.treeRoot = this.workspaceFolder;
-        }
     }
 
     private readConfig() {
@@ -508,9 +1441,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.includeFilesOutsideWorkspaceFolderRoot = config.get<boolean>('includeFilesOutsideWorkspaceRoot', true);
         this.openChangesOnSelect = config.get<boolean>('openChanges', true);
         this.autoChangeRepository = config.get<boolean>('autoChangeRepository', false);
+        this.multiRepositoryView = config.get<boolean>('multiRepositoryView', false);
         this.autoRefresh = config.get<boolean>('autoRefresh', true);
-        this.refreshIndex = config.get<boolean>('refreshIndex', true);
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
+        this.iconStyle = config.get<IconStyle>('iconStyle', 'status');
         this.fullDiff = config.get<string>('diffMode') === 'full';
         this.findRenames = config.get<boolean>('findRenames', true);
         this.renameThreshold = config.get<number>('renameThreshold', 50);
@@ -525,50 +1459,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.showDiffStats = config.get<boolean>('showDiffStats', false);
     }
 
-    private async getStoredBaseRef(): Promise<string | undefined> {
-        let baseRef = this.globalState.get<string>('baseRef_' + this.repoRoot);
-        if (baseRef) {
-            if (await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef)) {
-                this.log('Using stored base ref: ' + baseRef);
-            } else {
-                this.log('Not using non-existant stored base ref: ' + baseRef);
-                baseRef = undefined;
-            }
-        }
-        return baseRef;
-    }
-
-    private async isRefExisting(refName: string): Promise<boolean> {
-        const refs = await this.repository!.getRefs();
-        const exists = refs.some(ref => ref.name === refName);
-        return exists;
-    }
-
-    private async isCommitExisting(id: string): Promise<boolean> {
-        try {
-            await this.repository!.getCommit(id);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    private updateStoredBaseRef(baseRef: string) {
-        this.globalState.update('baseRef_' + this.repoRoot, baseRef);
-    }
-
     getTreeItem(element: Element): TreeItem {
+        const comparison = this.getExistingComparison(element.repositoryRoot);
         let checkboxState: TreeItemCheckboxState | undefined;
-        if (this.showCheckboxes) {
+        if (this.showCheckboxes && comparison) {
             if (element instanceof FileElement) {
-                const stateInfo = this.checkboxStates.get(element.dstAbsPath);
+                const stateInfo = comparison.checkboxStates.get(element.dstAbsPath);
                 checkboxState = stateInfo?.state ?? TreeItemCheckboxState.Unchecked;
             } else if (element instanceof FolderElement) {
                 // Compute folder state from children: checked if all children are checked
-                checkboxState = this.computeFolderCheckboxState(element);
+                checkboxState = this.computeFolderCheckboxState(comparison, element);
             }
         }
-        return toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
+        const item = toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.iconStyle, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
+        if (this.collapseGeneration > 0 && element instanceof FolderElement) {
+            item.collapsibleState = TreeItemCollapsibleState.Collapsed;
+            item.id = getElementId(element) + '#c' + this.collapseGeneration;
+        }
+        return item;
     }
 
     getParent(element: Element): Element | undefined {
@@ -576,24 +1484,24 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return this.parentMap.get(id);
     }
 
-    private computeFolderCheckboxState(folder: FolderElement): TreeItemCheckboxState {
+    private computeFolderCheckboxState(comparison: RepositoryComparison, folder: FolderElement): TreeItemCheckboxState {
         // Check if user explicitly set state on this folder
-        const explicitState = this.checkboxStates.get(folder.dstAbsPath);
+        const explicitState = comparison.checkboxStates.get(folder.dstAbsPath);
         if (explicitState) {
             return explicitState.state;
         }
-        
+
         // Otherwise derive from files: folder is checked only if ALL files under it are checked
-        const files = folder.useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
+        const files = folder.useFilesOutsideTreeRoot ? comparison.filesOutsideTreeRoot : comparison.filesInsideTreeRoot;
         let hasFiles = false;
         let allChecked = true;
-        
+
         for (const [folderPath, fileEntries] of files.entries()) {
             // Check if this folder is under the target folder
             if (folderPath === folder.dstAbsPath || folderPath.startsWith(folder.dstAbsPath + path.sep)) {
                 for (const file of fileEntries) {
                     hasFiles = true;
-                    const stateInfo = this.checkboxStates.get(file.dstAbsPath);
+                    const stateInfo = comparison.checkboxStates.get(file.dstAbsPath);
                     if (!stateInfo || stateInfo.state !== TreeItemCheckboxState.Checked) {
                         allChecked = false;
                         break;
@@ -602,41 +1510,80 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 if (!allChecked) break;
             }
         }
-        
+
         return (hasFiles && allChecked) ? TreeItemCheckboxState.Checked : TreeItemCheckboxState.Unchecked;
+    }
+
+    private hasFiles(comparison: RepositoryComparison): boolean {
+        return comparison.filesInsideTreeRoot.size > 0 ||
+            (this.includeFilesOutsideWorkspaceFolderRoot && comparison.filesOutsideTreeRoot.size > 0);
     }
 
     async getChildren(element?: Element): Promise<Element[]> {
         if (!element) {
-            if (!this.repository) {
+            this.updateViewState();
+            if (this.showRepositoryNodes()) {
+                const roots = this.getRepositoryRoots(true);
+                // Repositories are labelled by folder name, which is not unique
+                // across checkouts, so disambiguate collisions with the parent.
+                const nameCounts = new Map<string, number>();
+                for (const root of roots) {
+                    const name = path.basename(root);
+                    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+                }
+                return roots.map(root => {
+                    const name = path.basename(root);
+                    const ambiguous = (nameCounts.get(name) ?? 0) > 1;
+                    const displayed = this.displayedRoot(root);
+                    const isWorktree = displayed !== normalizePath(root);
+                    // A repository showing a linked worktree is labelled with
+                    // that worktree, which is more useful than the parent
+                    // folder used to disambiguate equal repository names.
+                    const description = isWorktree
+                        ? path.basename(displayed)
+                        : (ambiguous ? path.basename(path.dirname(root)) : undefined);
+                    return new RepositoryElement(displayed, name, true, description, isWorktree);
+                });
+            }
+            const comparison = this.activeComparison;
+            if (!comparison) {
                 return [];
             }
-            if (!this.filesInsideTreeRoot) {
-                try {
-                    await this.updateDiff(false);
-                } catch (e: any) {
-                    // some error occured, ignore and try again next time
-                    this.log('Ignoring updateDiff() error during initial getChildren()', e);
-                    return [];
-                }
+            try {
+                // Retries if a previous load failed.
+                await comparison.ensureLoaded();
+            } catch (e: any) {
+                this.log('Ignoring error during initial getChildren()', e);
+                return [];
             }
-            const hasFiles =
-                this.filesInsideTreeRoot.size > 0 ||
-                (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0);
-
-                const children = [new RefElement(this.repoRoot, this.baseRef, hasFiles)];
-                // RefElement is the root, no parent to record
-                return children;
+            // RefElement is the root, no parent to record
+            return [new RefElement(comparison.repoRoot, comparison.baseRef, this.hasFiles(comparison))];
+        } else if (element instanceof RepositoryElement) {
+            const comparison = await this.loadComparison(element.repositoryRoot);
+            if (!comparison) {
+                return [];
+            }
+            const children = [new RefElement(comparison.repoRoot, comparison.baseRef, this.hasFiles(comparison))];
+            this.recordParents(element, children);
+            return children;
         } else if (element instanceof RefElement) {
-            const entries: Element[] = [];
-            if (this.includeFilesOutsideWorkspaceFolderRoot && this.filesOutsideTreeRoot.size > 0) {
-                entries.push(new RepoRootElement(this.repoRoot));
+            const comparison = await this.loadComparison(element.repositoryRoot);
+            if (!comparison) {
+                return [];
             }
-            const children = entries.concat(this.getFileSystemEntries(this.treeRoot, false));
+            const entries: Element[] = [];
+            if (this.includeFilesOutsideWorkspaceFolderRoot && comparison.filesOutsideTreeRoot.size > 0) {
+                entries.push(new RepoRootElement(comparison.repoRoot, comparison.repoRoot));
+            }
+            const children = entries.concat(this.getFileSystemEntries(comparison, comparison.treeRoot, false));
             this.recordParents(element, children);
             return children;
         } else if (element instanceof FolderElement) {
-            const children = this.getFileSystemEntries(element.dstAbsPath, element.useFilesOutsideTreeRoot);
+            const comparison = await this.loadComparison(element.repositoryRoot);
+            if (!comparison) {
+                return [];
+            }
+            const children = this.getFileSystemEntries(comparison, element.dstAbsPath, element.useFilesOutsideTreeRoot);
             this.recordParents(element, children);
             return children;
         }
@@ -653,321 +1600,80 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    private async updateRefs(baseRef?: string): Promise<void>
-    {
-        this.log('Updating refs');
-        try {
-            const headLastChecked = new Date();
-            const HEAD = await this.repository!.getHEAD();
-            // if detached HEAD, then .commit exists, otherwise only .name
-            const headName = HEAD.name;
-            const headCommit = HEAD.commit || await getBranchCommit(HEAD.name!, this.repository!);
-            if (baseRef) {
-                const exists = await this.isRefExisting(baseRef) || await this.isCommitExisting(baseRef);
-                if (!exists) {
-                    // happens when branch was deleted
-                    baseRef = undefined;
-                }
-            }
-            if (!baseRef) {
-                baseRef = await this.getStoredBaseRef();
-            }
-            if (!baseRef) {
-                baseRef = await getDefaultBranch(this.repository!, HEAD);
-            }
-            if (!baseRef) {
-                if (HEAD.name) {
-                    baseRef = HEAD.name;
-                } else {
-                    // detached HEAD and no default branch was found
-                    // pick an arbitrary ref as base, give preference to common refs
-                    const refs = await this.repository!.getRefs();
-                    const commonRefs = ['origin/main', 'main', 'origin/master', 'master'];
-                    const match = refs.find(ref => ref.name !== undefined && commonRefs.indexOf(ref.name) !== -1);
-                    if (match) {
-                        baseRef = match.name;
-                    } else if (refs.length > 0) {
-                        baseRef = refs[0].name;
-                    }
-                }
-            }
-            if (!baseRef) {
-                // this should never happen
-                throw new Error('Base ref could not be determined!');
-            }
-            const HEADref: string = (HEAD.name || HEAD.commit)!;
-            let mergeBase = baseRef;
-            if (!this.fullDiff && baseRef != HEAD.name) {
-                // determine merge base to create more sensible/compact diff
-                let mergeBaseResult: string | undefined;
-                try {
-                    mergeBaseResult = await this.repository!.getMergeBase(HEADref, baseRef);
-                } catch (e) {
-                    // sometimes the merge base cannot be determined
-                    // this can be the case with shallow clones but may have other reasons
-                }
-                if (!mergeBaseResult) {
-                    const gitApiRepo = this.gitApi.getRepository(Uri.file(this.repository!.root));
-                    if (gitApiRepo) {
-                        mergeBaseResult = await tryDeepenForMergeBase(
-                            this.repository!, gitApiRepo, HEADref, HEAD.name, baseRef,
-                            msg => this.log(msg));
-                    }
-                }
-                if (!mergeBaseResult) {
-                    throw new Error(
-                        `No merge base could be found between "${HEADref}" and "${baseRef}". ` +
-                        `This can happen with shallow clones that don't have enough depth. ` +
-                        `Try fetching more history, or switch the diff mode to "full".`);
-                }
-                mergeBase = mergeBaseResult;
-            }
-            if (this.headName !== headName) {
-                this.log(`HEAD ref updated: ${this.headName} -> ${headName}`);
-                this.checkboxStates.clear();
-            }
-            if (this.headCommit !== headCommit) {
-                this.log(`HEAD ref commit updated: ${this.headCommit} -> ${headCommit}`);
-            }
-            if (this.baseRef !== baseRef) {
-                this.log(`Base ref updated: ${this.baseRef} -> ${baseRef}`);
-            }
-            if (!this.fullDiff && this.mergeBase !== mergeBase) {
-                this.log(`Merge base updated: ${this.mergeBase} -> ${mergeBase}`);
-            }
-            this.headLastChecked = headLastChecked;
-            this.headName = headName;
-            this.headCommit = headCommit;
-            this.baseRef = baseRef;
-            this.mergeBase = mergeBase;
-            this.updateStoredBaseRef(baseRef);
-        } catch (e) {
-            throw e;
-        }
-    }
-
-    @throttle
-    private async updateDiff(fireChangeEvents: boolean) {
-        if (!this.baseRef) {
-            await this.updateRefs();
-        }
-
-        const filesInsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
-        const filesOutsideTreeRoot = new Map<FolderAbsPath, IDiffStatus[]>();
-
-        const diff = await diffIndex(this.repository!, this.mergeBase, this.refreshIndex, this.findRenames, this.renameThreshold, this.omitUntrackedFiles, this.omitUnstagedChanges, this.showDiffStats);
-        const untrackedCount = diff.reduce((prev, cur, _) => prev + (cur.status === 'U' ? 1 : 0), 0);
-        this.log(`${diff.length} diff entries (${untrackedCount} untracked)`);
-
-        if (diff.length > MAX_DIFF_ENTRIES) {
-            const msg = `Too many changes to display (${diff.length}, limit is ${MAX_DIFF_ENTRIES}). Choose a closer base ref to reduce the number of changes.`;
-            this.log(msg);
-            window.showErrorMessage(msg);
-            this.filesInsideTreeRoot = new Map();
-            this.filesOutsideTreeRoot = new Map();
-            if (fireChangeEvents) {
-                this.fireTreeDataChange();
-            }
-            return;
-        }
-
-        const newFilePaths = new Set<string>();
-        // Collect files that need mtime checking for async batch processing
-        const filesToCheckMtime: Array<{filePath: string, stateInfo: CheckboxStateInfo}> = [];
-        
-        for (const entry of diff) {
-            const folder = path.dirname(entry.dstAbsPath);
-
-            const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
-            const files = isInsideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
-            const rootFolder = isInsideTreeRoot ? this.treeRoot : this.repoRoot;
-
-            if (files.size == 0) {
-                files.set(rootFolder, new Array());
-            }
-
-            // add this and all parent folders to the folder map
-            let currentFolder = folder
-            while (currentFolder != rootFolder) {
-                if (!files.has(currentFolder)) {
-                    files.set(currentFolder, new Array());
-                }
-                currentFolder = path.dirname(currentFolder)
-            }
-
-            const entries = files.get(folder)!;
-            entries.push(entry);
-
-            // Track new file paths
-            newFilePaths.add(entry.dstAbsPath);
-            
-            // Collect checked files for mtime checking to reset if modified after being checked
-            if (this.resetCheckboxOnFileChange) {
-                const stateInfo = this.checkboxStates.get(entry.dstAbsPath);
-                if (stateInfo && stateInfo.state === TreeItemCheckboxState.Checked) {
-                    filesToCheckMtime.push({filePath: entry.dstAbsPath, stateInfo});
-                }
-            }
-        }
-
-        // Check file modification times asynchronously in parallel
-        if (this.resetCheckboxOnFileChange && filesToCheckMtime.length > 0) {
-            const statPromises = filesToCheckMtime.map(async ({filePath, stateInfo}) => {
-                try {
-                    const stats = await fs.promises.stat(filePath);
-                    const fileMtime = stats.mtimeMs;
-                    
-                    // If file was modified after checkbox was checked, reset it
-                    if (fileMtime > stateInfo.timestamp) {
-                        return filePath;
-                    }
-                } catch (error: unknown) {
-                    // File might be deleted or inaccessible - this is expected in some cases
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    this.log(`Could not stat file for checkbox reset check: ${filePath}: ${errorMessage}`);
-                }
-                return null;
-            });
-            
-            const pathsToReset = await Promise.all(statPromises);
-            const actualPathsToReset = pathsToReset.filter((filePath): filePath is string => filePath !== null);
-            actualPathsToReset.forEach(filePath => this.checkboxStates.delete(filePath));
-            
-            // Fire tree refresh to update checkbox UI
-            if (actualPathsToReset.length > 0) {
-                this.fireTreeDataChange();
-            }
-        }
-
-        // Clear checkbox state for files that no longer exist in the diff
-        const pathsToDelete: string[] = [];
-        for (const [filePath] of this.checkboxStates) {
-            if (!newFilePaths.has(filePath)) {
-                pathsToDelete.push(filePath);
-            }
-        }
-        for (const filePath of pathsToDelete) {
-            this.checkboxStates.delete(filePath);
-        }
-
-        let treeHasChanged = false;
-        if (fireChangeEvents) {
-            const hasChanged = (folderPath: string, insideTreeRoot: boolean) => {
-                const oldFiles = insideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
-                const newFiles = insideTreeRoot ? filesInsideTreeRoot : filesOutsideTreeRoot;
-                const oldItems = oldFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
-                const newItems = newFiles.get(folderPath)!.map(f => `${f.status}|${f.dstAbsPath}`);
-                for (const {files, items} of [{files: oldFiles, items: oldItems},
-                                              {files: newFiles, items: newItems}]) {
-                    // add direct subdirectories to items list
-                    for (const folder of files.keys()) {
-                        if (path.dirname(folder) === folderPath) {
-                            items.push(folder);
-                        }
-                    }
-                }
-                return !sortedArraysEqual(oldItems, newItems);
-            }
-
-            const treeRootChanged = !this.filesInsideTreeRoot || !filesInsideTreeRoot.size !== !this.filesInsideTreeRoot.size;
-            const mustAddOrRemoveRepoRootElement = !this.filesOutsideTreeRoot || !filesOutsideTreeRoot.size !== !this.filesOutsideTreeRoot.size;
-            if (treeRootChanged || mustAddOrRemoveRepoRootElement) {
-                treeHasChanged = true;
-            } else {
-                for (const folder of filesInsideTreeRoot.keys()) {
-                    if (!this.filesInsideTreeRoot.has(folder) ||
-                            hasChanged(folder, true)) {
-                        treeHasChanged = true;
-                        break;
-                    }
-                }
-                if (!treeHasChanged) {
-                    for (const folder of filesOutsideTreeRoot.keys()) {
-                        if (!this.filesOutsideTreeRoot.has(folder) ||
-                                hasChanged(folder, false)) {
-                            treeHasChanged = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        this.filesInsideTreeRoot = filesInsideTreeRoot;
-        this.filesOutsideTreeRoot = filesOutsideTreeRoot;
-
-        // Always refresh when sorting by recently modified in list view, as file mtimes may have changed
-        const needsRefreshForSorting = this.viewAsList && this.sortOrder === 'recentlyModified';
-        
-        if (fireChangeEvents && (treeHasChanged || needsRefreshForSorting || this.showDiffStats)) {
-            this.log('Refreshing tree')
-            this.fireTreeDataChange();
-        }
-    }
-
-    private async isHeadChanged() {
-        // Note that we can't rely on filesystem change notifications for .git/HEAD
-        // because the workspace root may be a subfolder of the repo root
-        // and change notifications are currently limited to workspace scope.
-        // See https://github.com/Microsoft/vscode/issues/3025.
-        const mtime = await getHeadModificationDate(this.absGitDir);
-        if (mtime > this.headLastChecked) {
-            return true;
-        }
-        // At this point we know that HEAD still points to the same symbolic ref or commit (if detached).
-        // If HEAD is not detached, check if the symbolic ref resolves to a different commit.
-        if (this.headName) {
-            // this.repository.getBranch() is not used here to avoid git invocation overhead
-            const headCommit = await getBranchCommit(this.headName, this.repository!);
-            if (this.headCommit !== headCommit) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @debounce(2000)
-    private async handleWorkspaceChange(uri: Uri) {
-        if (!this.autoRefresh || !this.repository) {
+    private handleWorkspaceChange(uri: Uri) {
+        if (!this.autoRefresh) {
             return
         }
-        // ignore changes outside of repo root
-        //  e.g. "c:\Users\..\AppData\Roaming\Code - Insiders\User\globalStorage"
-        const normPath = normalizePath(uri.fsPath);
-        if (!normPath.startsWith(this.repoRoot + path.sep)) {
-            this.log(`Ignoring change outside of repository: ${uri.fsPath}`)
-            return
-        }
-        if (!window.state.focused || !this.treeView.visible) {
-            if (this.isPaused) {
-                return;
-            }
-            this.isPaused = true;
-            const onDidFocusWindow = filterEvent(window.onDidChangeWindowState, e => e.focused);
-            const onDidBecomeVisible = filterEvent(this.treeView.onDidChangeVisibility, e => e.visible);
-            const onDidFocusWindowOrBecomeVisible = anyEvent<any>(onDidFocusWindow, onDidBecomeVisible);
-            await eventToPromise(onDidFocusWindowOrBecomeVisible);
-            this.isPaused = false;
-            this.handleWorkspaceChange(uri);
+        const comparison = this.findComparisonForPath(uri.fsPath);
+        if (!comparison) {
+            // Either the change is outside every known repository, or it belongs
+            // to a repository that has not been opened in the tree yet, in which
+            // case there is no diff to refresh.
+            this.log(`Ignoring change outside of repositories: ${uri.fsPath}`)
             return;
         }
-        this.log(`Relevant workspace change detected: ${uri.fsPath}`)
-        if (await this.isHeadChanged()) {
-            // make sure merge base is updated when switching branches
-            try {
-                await this.updateRefs(this.baseRef);
-            } catch (e: any) {
-                // some error occured, ignore and try again next time
-                this.log('Ignoring updateRefs() error during handleWorkspaceChange()', e);
-                return;
-            }
+        this.pendingRefreshRoots.add(comparison.repoRoot);
+        if (this.pendingRefreshTimer) {
+            clearTimeout(this.pendingRefreshTimer);
         }
+        this.pendingRefreshTimer = setTimeout(() => {
+            this.pendingRefreshTimer = undefined;
+            void this.processPendingRefreshes();
+        }, 2000);
+    }
+
+    /**
+     * Refreshes all repositories with pending changes. Entries are only removed
+     * once they are actually processed, and a second invocation while one is
+     * already running is a no-op, so a burst of changes while the window is in
+     * the background cannot drop a repository's only pending refresh.
+     */
+    private async processPendingRefreshes() {
+        if (this.refreshInProgress) {
+            return;
+        }
+        this.refreshInProgress = true;
         try {
-            await this.updateDiff(true);
+            while (this.pendingRefreshRoots.size > 0 && !this.disposed) {
+                if (!window.state.focused || !this.treeView.visible) {
+                    await this.waitUntilFocusedAndVisible();
+                    continue;
+                }
+                const repoRoot = this.pendingRefreshRoots.values().next().value as FolderAbsPath;
+                this.pendingRefreshRoots.delete(repoRoot);
+                const comparison = this.comparisons.get(repoRoot);
+                if (!comparison) {
+                    continue;
+                }
+                this.log(`Relevant workspace change detected: ${repoRoot}`)
+                await this.refreshComparison(comparison);
+            }
+        } finally {
+            this.refreshInProgress = false;
+        }
+    }
+
+    private async waitUntilFocusedAndVisible(): Promise<void> {
+        const onDidFocusWindow = filterEvent(window.onDidChangeWindowState, e => e.focused);
+        const onDidBecomeVisible = filterEvent(this.treeView.onDidChangeVisibility, e => e.visible);
+        const onDidFocusWindowOrBecomeVisible = anyEvent<any>(onDidFocusWindow, onDidBecomeVisible);
+        await eventToPromise(onDidFocusWindowOrBecomeVisible);
+    }
+
+    private async refreshComparison(comparison: RepositoryComparison, showErrors=false) {
+        try {
+            if (await comparison.isHeadChanged()) {
+                // make sure merge base is updated when switching branches
+                await comparison.updateRefs(comparison.baseRef);
+            }
+            await comparison.updateDiff(true);
         } catch (e: any) {
             // some error occured, ignore and try again next time
-            this.log('Ignoring updateDiff() error during handleWorkspaceChange()', e);
-            return;
+            let msg = 'Updating the git tree failed';
+            this.log(msg, e);
+            if (showErrors) {
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
         }
     }
 
@@ -976,8 +1682,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldInclude = this.includeFilesOutsideWorkspaceFolderRoot;
         const oldOpenChangesOnSelect = this.openChangesOnSelect;
         const oldAutoRefresh = this.autoRefresh;
-        const oldRefreshIndex = this.refreshIndex;
         const oldIconsMinimal = this.iconsMinimal;
+        const oldIconStyle = this.iconStyle;
         const oldFullDiff = this.fullDiff;
         const oldFindRenames = this.findRenames;
         const oldRenameThreshold = this.renameThreshold;
@@ -986,6 +1692,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
         const oldSortOrder = this.sortOrder;
+        const oldMultiRepositoryView = this.multiRepositoryView;
         const oldShowDiffStats = this.showDiffStats;
         this.readConfig();
         if (oldshowCheckboxes && !this.showCheckboxes && this.hideCheckedFiles) {
@@ -995,9 +1702,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
             oldOpenChangesOnSelect != this.openChangesOnSelect ||
+            oldMultiRepositoryView != this.multiRepositoryView ||
             oldIconsMinimal != this.iconsMinimal ||
+            oldIconStyle != this.iconStyle ||
             (!oldAutoRefresh && this.autoRefresh) ||
-            (!oldRefreshIndex && this.refreshIndex) ||
             oldFullDiff != this.fullDiff ||
             oldFindRenames != this.findRenames ||
             oldRenameThreshold != this.renameThreshold ||
@@ -1008,78 +1716,100 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldSortOrder != this.sortOrder ||
             oldShowDiffStats != this.showDiffStats) {
 
-            if (!this.repository) {
+            if (oldMultiRepositoryView != this.multiRepositoryView) {
+                // The layout changed, start from a clean slate.
+                this.invalidateComparisonCreations();
+                this.activeComparison = undefined;
+                this.comparisons.clear();
+                this.rootAliases.clear();
+                this.reportedLoadErrors.clear();
+                this.pendingRefreshRoots.clear();
+                this.disposeExtraRepositoryWatchers();
+                if (!this.showRepositoryNodes()) {
+                    const gitRepos = this.getRepositoryRoots(true);
+                    if (gitRepos.length > 0) {
+                        await this.changeRepository(gitRepos[0]);
+                    } else {
+                        await this.unsetRepository();
+                    }
+                    return;
+                }
+                this.updateViewState();
+                this.fireTreeDataChange();
                 return;
             }
 
-            const oldTreeRoot = this.treeRoot;
-            if (oldTreeRootIsRepo != this.treeRootIsRepo) {
-                this.updateTreeRootFolder();
-            }
-
-            if (oldFullDiff != this.fullDiff ||
+            const needsReload =
+                oldFullDiff != this.fullDiff ||
                 oldFindRenames != this.findRenames ||
                 oldRenameThreshold != this.renameThreshold ||
-                oldTreeRoot != this.treeRoot ||
                 (!oldAutoRefresh && this.autoRefresh) ||
-                (!oldRefreshIndex && this.refreshIndex) ||
                 oldOmitUntrackedFiles != this.omitUntrackedFiles ||
                 oldOmitUnstagedChanges != this.omitUnstagedChanges ||
-                oldShowDiffStats != this.showDiffStats) {
+                oldShowDiffStats != this.showDiffStats;
+
+            // Only repositories that have already been loaded need updating.
+            // The rest pick up the new settings when they are first expanded.
+            for (const comparison of [...this.comparisons.values()]) {
+                const treeRootChanged = oldTreeRootIsRepo != this.treeRootIsRepo &&
+                    comparison.updateTreeRootFolder();
+                if (!needsReload && !treeRootChanged) {
+                    continue;
+                }
                 try {
-                    await this.updateRefs(this.baseRef);
-                    await this.updateDiff(false);
+                    await comparison.updateRefs(comparison.baseRef);
+                    await comparison.updateDiff(false);
                 } catch (e: any) {
                     let msg = 'Updating the git tree failed';
                     this.log(msg, e);
                     window.showErrorMessage(`${msg}: ${e.message}`);
                     // clear the tree as it would be confusing to display stale data under the new settings
-                    this.filesInsideTreeRoot = new Map();
-                    this.filesOutsideTreeRoot = new Map();
+                    comparison.clearFiles();
                 }
             }
+            this.updateViewState();
             this.fireTreeDataChange();
         }
     }
 
-    private matchesFilter(filePath: string, relPathBase: string): boolean {
-        if (!this.searchFilter) {
+    private matchesFilter(comparison: RepositoryComparison, filePath: string, relPathBase: string): boolean {
+        if (!comparison.searchFilter) {
             return true;
         }
         const fileName = path.basename(filePath);
         const relativePath = path.relative(relPathBase, filePath);
-        const searchLower = this.searchFilter.toLowerCase();
+        const searchLower = comparison.searchFilter.toLowerCase();
         return fileName.toLowerCase().includes(searchLower) ||
                relativePath.toLowerCase().includes(searchLower);
     }
 
-    private isFileCheckboxChecked(dstAbsPath: string): boolean {
-        const stateInfo = this.checkboxStates.get(dstAbsPath);
+    private isFileCheckboxChecked(comparison: RepositoryComparison, dstAbsPath: string): boolean {
+        const stateInfo = comparison.checkboxStates.get(dstAbsPath);
         return stateInfo?.state === TreeItemCheckboxState.Checked;
     }
 
     /** Whether this file row should appear in the tree (search + optional hide-checked). */
-    private fileVisibleInTree(dstAbsPath: string, relPathBase: string): boolean {
-        if (!this.matchesFilter(dstAbsPath, relPathBase)) {
+    private fileVisibleInTree(comparison: RepositoryComparison, dstAbsPath: string, relPathBase: string): boolean {
+        if (!this.matchesFilter(comparison, dstAbsPath, relPathBase)) {
             return false;
         }
-        if (this.hideCheckedFiles && this.isFileCheckboxChecked(dstAbsPath)) {
+        if (this.hideCheckedFiles && this.isFileCheckboxChecked(comparison, dstAbsPath)) {
             return false;
         }
         return true;
     }
 
-    private folderHasMatchingFiles(folder: string, useFilesOutsideTreeRoot: boolean): boolean {
-        if (!this.searchFilter && !this.hideCheckedFiles) {
+    private folderHasMatchingFiles(comparison: RepositoryComparison, folder: string, useFilesOutsideTreeRoot: boolean): boolean {
+        if (!comparison.searchFilter && !this.hideCheckedFiles) {
             return true;
         }
-        const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
-        const relPathBase = useFilesOutsideTreeRoot ? this.repoRoot : this.treeRoot;
+        const files = useFilesOutsideTreeRoot ? comparison.filesOutsideTreeRoot : comparison.filesInsideTreeRoot;
+        const relPathBase = useFilesOutsideTreeRoot ? comparison.repoRoot : comparison.treeRoot;
 
         for (const [folderPath, fileEntries] of files.entries()) {
             if (folderPath === folder || folderPath.startsWith(folder + path.sep)) {
                 for (const file of fileEntries) {
-                    if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
+                    if (this.fileVisibleInTree(comparison, file.dstAbsPath, relPathBase)) {
                         return true;
                     }
                 }
@@ -1088,10 +1818,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         return false;
     }
 
-    private getFileSystemEntries(folder: string, useFilesOutsideTreeRoot: boolean): FileSystemElement[] {
+    private getFileSystemEntries(comparison: RepositoryComparison, folder: string, useFilesOutsideTreeRoot: boolean): FileSystemElement[] {
         const entries: FileSystemElement[] = [];
-        const files = useFilesOutsideTreeRoot ? this.filesOutsideTreeRoot : this.filesInsideTreeRoot;
-        const relPathBase = useFilesOutsideTreeRoot ? this.repoRoot : this.treeRoot;
+        const files = useFilesOutsideTreeRoot ? comparison.filesOutsideTreeRoot : comparison.filesInsideTreeRoot;
+        const relPathBase = useFilesOutsideTreeRoot ? comparison.repoRoot : comparison.treeRoot;
 
         if (this.viewAsList) {
             // add files of direct and nested subfolders
@@ -1106,9 +1836,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             for (const folder2 of folders) {
                 const fileEntries = files.get(folder2)!;
                 for (const file of fileEntries) {
-                    if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
+                    if (this.fileVisibleInTree(comparison, file.dstAbsPath, relPathBase)) {
                         const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                        entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, file.stats));
+                        entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, comparison.repoRoot, file.stats));
                     }
                 }
             }
@@ -1116,7 +1846,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // add direct subfolders and apply compaction
             for (const folder2 of files.keys()) {
                 if (path.dirname(folder2) === folder) {
-                    if (!this.folderHasMatchingFiles(folder2, useFilesOutsideTreeRoot)) {
+                    if (!this.folderHasMatchingFiles(comparison, folder2, useFilesOutsideTreeRoot)) {
                         continue;
                     }
                     let compactedPath = folder2;
@@ -1145,7 +1875,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
                     const label = path.relative(folder, compactedPath);
                     entries.push(new FolderElement(
-                        label, compactedPath, useFilesOutsideTreeRoot));
+                        label, compactedPath, useFilesOutsideTreeRoot, comparison.repoRoot));
                 }
             }
             entries.sort((a, b) => a.label.split(path.sep, 1)[0].localeCompare(b.label.split(path.sep, 1)[0]));
@@ -1153,10 +1883,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             // add direct subfolders
             for (const folder2 of files.keys()) {
                 if (path.dirname(folder2) === folder) {
-                    if (this.folderHasMatchingFiles(folder2, useFilesOutsideTreeRoot)) {
+                    if (this.folderHasMatchingFiles(comparison, folder2, useFilesOutsideTreeRoot)) {
                         const label = path.basename(folder2);
                         entries.push(new FolderElement(
-                            label, folder2, useFilesOutsideTreeRoot));
+                            label, folder2, useFilesOutsideTreeRoot, comparison.repoRoot));
                     }
                 }
             }
@@ -1169,9 +1899,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         // there are no files within treeRoot, therefore, this is guarded
         if (fileEntries) {
             for (const file of fileEntries) {
-                if (this.fileVisibleInTree(file.dstAbsPath, relPathBase)) {
+                if (this.fileVisibleInTree(comparison, file.dstAbsPath, relPathBase)) {
                     const dstRelPath = path.relative(relPathBase, file.dstAbsPath);
-                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, file.stats));
+                    entries.push(new FileElement(file.srcAbsPath, file.dstAbsPath, dstRelPath, file.status, file.isSubmodule, comparison.repoRoot, file.stats));
                 }
             }
         }
@@ -1238,33 +1968,40 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         entries.push(...folderElements, ...fileElements);
     }
 
-    private getDiffStatus(fileEntry?: FileElement): IDiffStatus | undefined {
+    /**
+     * Resolves the diff status of a file together with the repository it
+     * belongs to. Returns undefined when the file is not part of any loaded
+     * comparison, so a command can never act on another repository's state.
+     */
+    private resolveFile(fileEntry?: FileElement): { comparison: RepositoryComparison, status: IDiffStatus } | undefined {
         if (fileEntry) {
-            return fileEntry;
+            const comparison = this.getExistingComparison(fileEntry.repositoryRoot);
+            return comparison ? { comparison, status: fileEntry } : undefined;
         }
         const uri = window.activeTextEditor && window.activeTextEditor.document.uri;
         if (!uri || uri.scheme !== 'file') {
             return;
         }
-        const dstAbsPath = uri.fsPath;
-        const folder = path.dirname(dstAbsPath);
-        const isInsideTreeRoot = folder === this.treeRoot || folder.startsWith(this.treeRoot + path.sep);
-        const files = isInsideTreeRoot ? this.filesInsideTreeRoot : this.filesOutsideTreeRoot;
-        const diffStatus = files.get(folder)?.find(file => file.dstAbsPath === dstAbsPath);
-        return diffStatus;
+        const comparison = this.findComparisonForPath(uri.fsPath);
+        if (!comparison) {
+            return;
+        }
+        const status = comparison.findFile(uri.fsPath);
+        return status ? { comparison, status } : undefined;
     }
 
     async openChanges(fileEntry?: FileElement) {
-        const diffStatus = this.getDiffStatus(fileEntry);
-        if (!diffStatus) {
+        const resolved = this.resolveFile(fileEntry);
+        if (!resolved) {
             return;
         }
-        await this.doOpenChanges(diffStatus.srcAbsPath, diffStatus.dstAbsPath, diffStatus.status);
+        const { comparison, status } = resolved;
+        await this.doOpenChanges(comparison, status.srcAbsPath, status.dstAbsPath, status.status);
     }
 
-    async doOpenChanges(srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+    async doOpenChanges(comparison: RepositoryComparison, srcAbsPath: string, dstAbsPath: string, status: StatusCode) {
         const right = Uri.file(dstAbsPath);
-        const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), this.mergeBase);
+        const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), comparison.mergeBase);
 
         if (status === 'U' || status === 'A') {
             return commands.executeCommand('vscode.open', right);
@@ -1274,32 +2011,57 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         const options: TextDocumentShowOptions = {
-            preview: preview
+            preview: true
         };
         const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
             left, right, filename + " (Working Tree)", options);
     }
 
-    openAllChanges(entry: RefElement | RepoRootElement | FolderElement | undefined) {
+    async openAllChanges(entry: RefElement | RepoRootElement | FolderElement | RepositoryElement | undefined) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            return;
+        }
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
-        for (const file of this.iterFiles(withinFolder)) {
-            this.doOpenChanges(file.srcAbsPath, file.dstAbsPath, file.status, false);
+        const resources: [Uri, Uri | undefined, Uri | undefined][] = [];
+
+        for (const file of comparison.iterFiles(withinFolder)) {
+            const right = Uri.file(file.dstAbsPath);
+            const left = this.gitApi.toGitUri(Uri.file(file.srcAbsPath), comparison.mergeBase);
+
+            if (file.status === 'A' || file.status === 'U') {
+                resources.push([right, undefined, right]);
+            } else if (file.status === 'D') {
+                resources.push([Uri.file(file.srcAbsPath), left, undefined]);
+            } else {
+                resources.push([right, left, right]);
+            }
+        }
+
+        if (resources.length > 0) {
+            try {
+                await commands.executeCommand('vscode.changes', `Changes against ${comparison.baseRef}`, resources);
+            } catch (e: any) {
+                const msg = 'Opening all changes failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
         }
     }
 
     async openFile(fileEntries: FileElement[]) {
         for (const fileEntry of fileEntries) {
-            const diffStatus = this.getDiffStatus(fileEntry);
-            if (diffStatus) {
-                await this.doOpenFile(diffStatus.dstAbsPath, diffStatus.status);
+            const resolved = this.resolveFile(fileEntry);
+            if (resolved) {
+                await this.doOpenFile(resolved.comparison, resolved.status.dstAbsPath, resolved.status.status);
             }
         }
     }
 
-    async doOpenFile(dstAbsPath: string, status: StatusCode, preview=false) {
+    async doOpenFile(comparison: RepositoryComparison, dstAbsPath: string, status: StatusCode, preview=false) {
         const right = Uri.file(dstAbsPath);
-        const left = this.gitApi.toGitUri(right, this.mergeBase);
+        const left = this.gitApi.toGitUri(right, comparison.mergeBase);
         const uri = status === 'D' ? left : right;
         const options: TextDocumentShowOptions = {
             preview: preview
@@ -1308,26 +2070,37 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async discardChanges(entries: (FileElement | FolderElement)[]) {
-        let statuses: IDiffStatus[] = [];
+        const statusesByRepository = new Map<RepositoryComparison, IDiffStatus[]>();
         for (const entry of entries) {
+            const comparison = this.getExistingComparison(entry.repositoryRoot);
+            if (!comparison) {
+                continue;
+            }
+            let statuses = statusesByRepository.get(comparison);
+            if (!statuses) {
+                statuses = [];
+                statusesByRepository.set(comparison, statuses);
+            }
             if (entry instanceof FolderElement) {
-                statuses = statuses.concat([...this.iterFiles(entry.dstAbsPath)]);
+                statuses.push(...comparison.iterFiles(entry.dstAbsPath));
             } else {
-                const diffStatus = this.getDiffStatus(entry);
-                if (diffStatus) {
-                    statuses.push(diffStatus);
-                }
+                statuses.push(entry);
             }
         }
-        await this.doDiscardChanges(statuses);
+        for (const [comparison, statuses] of statusesByRepository) {
+            await this.doDiscardChanges(comparison, statuses);
+        }
     }
 
-    async discardAllChanges() {
-        const statuses = [...this.iterFiles()];
-        await this.doDiscardChanges(statuses);
+    async discardAllChanges(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            return;
+        }
+        await this.doDiscardChanges(comparison, [...comparison.iterFiles()]);
     }
 
-    async doDiscardChanges(statuses: IDiffStatus[]) {
+    async doDiscardChanges(comparison: RepositoryComparison, statuses: IDiffStatus[]) {
         if (statuses.length === 0) {
             return;
         }
@@ -1347,7 +2120,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     fs.unlinkSync(diffStatus.dstAbsPath);
                 });
             } else if (diffStatus.status === 'A') {
-                const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                const dirty = await hasUncommittedChanges(comparison.repository, diffStatus.dstAbsPath);
                 let msg = `Do you really want to delete ${filename}?`;
                 if (dirty) {
                     uncommittedChanges.push(filename);
@@ -1355,12 +2128,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 }
                 prompts.push([msg, 'Delete File']);
                 actions.push(async () => {
-                    await rmFile(this.repository!, diffStatus.dstAbsPath);
+                    await rmFile(comparison.repository, diffStatus.dstAbsPath);
                 });
             } else if (diffStatus.status === 'M' || diffStatus.status === 'D') {
-                let msg = `Do you really want to restore ${filename} with the contents from ${this.baseRef}?`;
+                let msg = `Do you really want to restore ${filename} with the contents from ${comparison.baseRef}?`;
                 if (diffStatus.status !== 'D') {
-                    const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                    const dirty = await hasUncommittedChanges(comparison.repository, diffStatus.dstAbsPath);
                     if (dirty) {
                         uncommittedChanges.push(filename);
                         msg = `${msg}\nThis file has UNCOMMITTED changes which will be FOREVER LOST!`;
@@ -1368,7 +2141,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 }
                 prompts.push([msg, 'Restore File']);
                 actions.push(async () => {
-                    await this.repository!.checkout(this.mergeBase, [diffStatus.dstAbsPath]);
+                    await comparison.repository.checkout(comparison.mergeBase, [diffStatus.dstAbsPath]);
                 });
             } else if (diffStatus.status === 'R') {
                 const srcFolder = path.dirname(diffStatus.srcAbsPath);
@@ -1382,20 +2155,20 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                     dstFile = path.basename(diffStatus.dstAbsPath);
                 } else {
                     verb = 'move';
-                    const relPathBase = this.treeRoot;
+                    const relPathBase = comparison.treeRoot;
                     srcFile = path.relative(relPathBase, diffStatus.srcAbsPath);
                     dstFile = path.relative(relPathBase, diffStatus.dstAbsPath);
                 }
-                let msg = `Do you really want to ${verb} ${srcFile} to ${dstFile} and restore contents from ${this.baseRef}?`;
-                const dirty = await hasUncommittedChanges(this.repository!, diffStatus.dstAbsPath);
+                let msg = `Do you really want to ${verb} ${srcFile} to ${dstFile} and restore contents from ${comparison.baseRef}?`;
+                const dirty = await hasUncommittedChanges(comparison.repository, diffStatus.dstAbsPath);
                 if (dirty) {
                     uncommittedChanges.push(filename);
                     msg = `${msg}\nThis file has UNCOMMITTED changes which will be FOREVER LOST!`;
                 }
                 prompts.push([msg, 'Restore File']);
                 actions.push(async () => {
-                    await rmFile(this.repository!, diffStatus.dstAbsPath);
-                    await this.repository!.checkout(this.mergeBase, [diffStatus.srcAbsPath]);
+                    await rmFile(comparison.repository, diffStatus.dstAbsPath);
+                    await comparison.repository.checkout(comparison.mergeBase, [diffStatus.srcAbsPath]);
                 });
             } else {
                 window.showInformationMessage(
@@ -1433,39 +2206,29 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
     }
 
-    openChangedFiles(entry: RefElement | RepoRootElement | FolderElement | undefined) {
+    async openChangedFiles(entry: RefElement | RepoRootElement | FolderElement | RepositoryElement | undefined) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            return;
+        }
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
-        for (const file of this.iterFiles(withinFolder)) {
+        for (const file of comparison.iterFiles(withinFolder)) {
             if (file.status == 'D') {
                 continue;
             }
-            this.doOpenFile(file.dstAbsPath, file.status, false);
+            this.doOpenFile(comparison, file.dstAbsPath, file.status, false);
         }
     }
 
-    *iterFiles(withinFolder: string | undefined = undefined) {
-        for (let filesMap of [this.filesInsideTreeRoot, this.filesOutsideTreeRoot]) {
-            for (let [folder, files] of filesMap.entries()) {
-                if (withinFolder && !folder.startsWith(withinFolder)) {
-                    continue;
-                }
-                for (let file of files) {
-                    if (!file.isSubmodule) {
-                        yield file;
-                    }
-                }
-            }
-        }
-    }
-
-    async promptChangeBase() {
-        if (!this.repository) {
+    async promptChangeBase(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
             window.showErrorMessage('No repository selected');
             return;
         }
         const commit = new ChangeBaseCommitItem();
         const sortOrder = workspace.getConfiguration(NAMESPACE).get<'alphabetically' | 'committerdate'>('refSortOrder', 'committerdate');
-        const refs = (await this.repository.getRefs({ sort: sortOrder })).filter(ref => ref.name);
+        const refs = (await comparison.repository.getRefs({ sort: sortOrder })).filter(ref => ref.name);
         const heads = refs.filter(ref => ref.type === RefType.Head).map(ref => new ChangeBaseRefItem(ref));
         const tags = refs.filter(ref => ref.type === RefType.Tag).map(ref => new ChangeBaseTagItem(ref));
         const remoteHeads = refs.filter(ref => ref.type === RefType.RemoteHead).map(ref => new ChangeBaseRemoteHeadItem(ref));
@@ -1495,12 +2258,12 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             throw new Error("unsupported item type");
         }
 
-        if (this.baseRef === baseRef) {
+        if (comparison.baseRef === baseRef) {
             return;
         }
         window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree Base' }, async _ => {
             try {
-                await this.updateRefs(baseRef);
+                await comparison.updateRefs(baseRef);
             } catch (e: any) {
                 let msg = 'Updating the git tree base failed';
                 this.log(msg, e);
@@ -1508,27 +2271,27 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 return;
             }
             try {
-                await this.updateDiff(false);
+                await comparison.updateDiff(false);
             } catch (e: any) {
                 let msg = 'Updating the git tree failed';
                 this.log(msg, e);
                 window.showErrorMessage(`${msg}: ${e.message}`);
                 // clear the tree as it would be confusing to display the old tree under the new base
-                this.filesInsideTreeRoot = new Map();
-                this.filesOutsideTreeRoot = new Map();
+                comparison.clearFiles();
             }
             this.log('Refreshing tree');
             this.fireTreeDataChange();
         });
     }
 
-    async compareGitHubPullRequest() {
-        if (!this.repository) {
+    async compareGitHubPullRequest(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
             window.showErrorMessage('No repository selected');
             return;
         }
 
-        const repository = this.repository;
+        const repository = comparison.repository;
 
         // Check for uncommitted changes (ignoring untracked files)
         try {
@@ -1606,6 +2369,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 const headRepoUrl = headRepo.clone_url;
                 const isFork = headRepo.full_name !== pr.base.repo.full_name;
 
+                // Find which local remote points to the base repo (may not be 'origin')
+                const baseCloneUrl = pr.base.repo.clone_url;
+                const baseSshUrl = pr.base.repo.ssh_url;
+                const normalizeRemoteUrl = (u: string) => u.toLowerCase().replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+                const remotes = await repository.getRemotes();
+                const baseRemoteName = remotes.find(r => {
+                    const url = normalizeRemoteUrl(r.fetchUrl || r.pushUrl || '');
+                    return url === normalizeRemoteUrl(baseCloneUrl) || url === normalizeRemoteUrl(baseSshUrl);
+                })?.name ?? 'origin';
+
                 // Extract head owner for branch naming
                 const headOwner = pr.head.user?.login || pr.head.repo?.owner.login;
                 if (!headOwner) {
@@ -1655,17 +2428,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                         this.log(`Created local branch ${localBranchName} tracking ${forkRemoteName}/${headRef}`);
                     } else {
                         // For same repo, use GitHub's pull/<id>/head refspec
-                        this.log(`Fetching PR #${prNumber} from origin`);
-                        await repository.exec(['fetch', 'origin', `pull/${prNumber}/head:${localBranchName}`]);
+                        this.log(`Fetching PR #${prNumber} from ${baseRemoteName}`);
+                        await repository.exec(['fetch', baseRemoteName, `pull/${prNumber}/head:${localBranchName}`]);
                         
-                        // Set upstream to origin/<headRef> if the branch exists there
+                        // Set upstream to <remote>/<headRef> if the branch exists there
                         try {
                             // Fetch the actual head ref to update the remote tracking branch
-                            await repository.fetch({ remote: 'origin', ref: headRef });
-                            await repository.exec(['branch', '--set-upstream-to', `origin/${headRef}`, localBranchName]);
-                            this.log(`Created local branch ${localBranchName} tracking origin/${headRef}`);
+                            await repository.fetch({ remote: baseRemoteName, ref: headRef });
+                            await repository.exec(['branch', '--set-upstream-to', `${baseRemoteName}/${headRef}`, localBranchName]);
+                            this.log(`Created local branch ${localBranchName} tracking ${baseRemoteName}/${headRef}`);
                         } catch {
-                            this.log(`Created local branch ${localBranchName} (no upstream - origin/${headRef} not found)`);
+                            this.log(`Created local branch ${localBranchName} (no upstream - ${baseRemoteName}/${headRef} not found)`);
                         }
                     }
                 } catch (e: any) {
@@ -1690,8 +2463,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 try {
                     const originBaseRef = `origin/${baseRef}`;
                     this.log(`Updating base to: ${originBaseRef}`);
-                    await this.updateRefs(originBaseRef);
-                    await this.updateDiff(false);
+                    await comparison.updateRefs(originBaseRef);
+                    await comparison.updateDiff(false);
                     this.log('Refreshing tree');
                     this.fireTreeDataChange();
                     window.showInformationMessage(`Now comparing PR #${prNumber}: ${pr.title}`);
@@ -1709,19 +2482,40 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         });
     }
 
-    async manualRefresh() {
-        window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async _ => {
-            try {
-                if (await this.isHeadChanged()) {
-                    // make sure merge base is updated when switching branches
-                    await this.updateRefs(this.baseRef);
-                }
-                await this.updateDiff(true);
-            } catch (e: any) {
-                let msg = 'Updating the git tree failed';
-                this.log(msg, e);
-                window.showErrorMessage(`${msg}: ${e.message}`);
+    async manualRefresh(entry?: RefElement | RepositoryElement) {
+        const repositoryRoot = await this.resolveRepositoryRoot(entry);
+        if (!repositoryRoot) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+        await window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async _ => {
+            await this.refreshOrLoadComparison(repositoryRoot);
+        });
+    }
+
+    private async refreshOrLoadComparison(repositoryRoot: string): Promise<void> {
+        const comparison = this.getExistingComparison(repositoryRoot);
+        if (comparison?.isLoaded) {
+            await this.refreshComparison(comparison, true);
+            return;
+        }
+        // The initial load already computes refs and the complete diff. Do not
+        // immediately run a second refresh when Refresh races tree expansion.
+        if (await this.loadComparison(repositoryRoot)) {
+            this.fireTreeDataChange();
+        }
+    }
+
+    async manualRefreshAll() {
+        if (!this.showRepositoryNodes()) {
+            await this.manualRefresh(undefined);
+            return;
+        }
+        await window.withProgress({ location: ProgressLocation.Window, title: 'Updating Tree' }, async _ => {
+            for (const repoRoot of this.getRepositoryRoots(true)) {
+                await this.refreshOrLoadComparison(repoRoot);
             }
+            this.fireTreeDataChange();
         });
     }
 
@@ -1780,78 +2574,121 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('sortOrder', 'recentlyModified', true);
     }
 
-    async searchChanges() {
-        const uris = [...this.iterFiles()].map(file => Uri.file(file.dstAbsPath));
-        const relativePaths = uris.map(uri => path.relative(this.repoRoot, uri.fsPath));
+    async collapseAll() {
+        this.collapseGeneration++;
+        this.fireTreeDataChange();
+    }
+
+    /**
+     * Builds a workspace search include pattern for a file.
+     *
+     * Patterns have to use forward slashes, and have to be anchored with `./`
+     * and qualified with the workspace folder in multi-root workspaces.
+     * A bare relative path would otherwise also match the same path inside
+     * every other workspace folder.
+     */
+    private toSearchPattern(absPath: string): string | undefined {
+        const folder = workspace.getWorkspaceFolder(Uri.file(absPath));
+        if (!folder) {
+            return undefined;
+        }
+        const relPath = path.relative(folder.uri.fsPath, absPath).split(path.sep).join('/');
+        if (!relPath || relPath.startsWith('../')) {
+            return undefined;
+        }
+        const multiRoot = (workspace.workspaceFolders?.length ?? 0) > 1;
+        // In multi-root workspaces the first segment is matched against the
+        // workspace folder name, which can be overridden in a .code-workspace
+        // file and is therefore not always the directory basename.
+        return multiRoot ? `./${folder.name}/${relPath}` : `./${relPath}`;
+    }
+
+    async searchChanges(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            return;
+        }
+        const files = [...comparison.iterFiles()];
+        const patterns: string[] = [];
+        for (const file of files) {
+            const pattern = this.toSearchPattern(file.dstAbsPath);
+            if (pattern) {
+                patterns.push(pattern);
+            }
+        }
+        if (patterns.length === 0) {
+            window.showInformationMessage(files.length === 0
+                ? 'No changed files to search.'
+                : 'No changed files inside the workspace to search.');
+            return;
+        }
+        if (patterns.length < files.length) {
+            this.log(`Excluding ${files.length - patterns.length} changed file(s) outside the workspace from search`);
+        }
         await commands.executeCommand('workbench.action.findInFiles', {
             query: '',
-            filesToInclude: relativePaths.join(','),
+            filesToInclude: patterns.join(','),
             triggerSearch: true
         });
     }
 
-    async filterFiles() {
+    async filterFiles(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            return;
+        }
         const searchTerm = await window.showInputBox({
             prompt: 'Enter text to filter files (leave empty to show all)',
             placeHolder: 'Filter by filename or path...',
-            value: this.searchFilter || ''
+            value: comparison.searchFilter || ''
         });
 
         if (searchTerm === undefined) {
             return;
         }
 
-        this.searchFilter = searchTerm.trim() || undefined;
-        this.updateTreeTitle();
-        this.updateFilterContext();
-        this.log(this.searchFilter ? `Filtering files by: ${this.searchFilter}` : 'Cleared file filter');
+        comparison.searchFilter = searchTerm.trim() || undefined;
+        this.updateViewState();
+        this.log(comparison.searchFilter ? `Filtering files by: ${comparison.searchFilter}` : 'Cleared file filter');
         this.fireTreeDataChange();
     }
 
-    clearFilter() {
-        if (!this.searchFilter) {
+    async clearFilter(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison || !comparison.searchFilter) {
             return;
         }
-        this.searchFilter = undefined;
-        this.updateTreeTitle();
-        this.updateFilterContext();
+        comparison.searchFilter = undefined;
+        this.updateViewState();
         this.log('Cleared file filter');
         this.fireTreeDataChange();
     }
 
-    private updateFilterContext() {
-        commands.executeCommand('setContext', NAMESPACE + '.isFiltered', !!this.searchFilter);
-    }
-
     async copyPath(fileEntry: FileElement) {
-        const diffStatus = this.getDiffStatus(fileEntry);
-        if (!diffStatus) {
+        const resolved = this.resolveFile(fileEntry);
+        if (!resolved) {
             return;
         }
-        await env.clipboard.writeText(diffStatus.dstAbsPath);
+        await env.clipboard.writeText(resolved.status.dstAbsPath);
     }
 
     async copyRelativePath(fileEntry: FileElement) {
-        const diffStatus = this.getDiffStatus(fileEntry);
-        if (!diffStatus) {
+        const resolved = this.resolveFile(fileEntry);
+        if (!resolved) {
             return;
         }
         // Calculate relative path from workspace folder root (not git repo root)
         // Note: If the file is outside the workspace folder, the path will start with ../
-        const relativePath = path.relative(this.workspaceFolder, diffStatus.dstAbsPath);
+        const relativePath = path.relative(resolved.comparison.workspaceFolder, resolved.status.dstAbsPath);
         await env.clipboard.writeText(relativePath);
     }
 
     async openChangesWithDifftool(fileEntry: FileElement) {
-        const diffStatus = this.getDiffStatus(fileEntry);
-        if (!diffStatus) {
+        const resolved = this.resolveFile(fileEntry);
+        if (!resolved) {
             return;
         }
-
-        if (!this.repository) {
-            window.showErrorMessage('No repository is active.');
-            return;
-        }
+        const { comparison, status: diffStatus } = resolved;
 
         const { dstAbsPath, status } = diffStatus;
 
@@ -1868,15 +2705,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         // Calculate relative path from repository root
-        const dstRelPath = path.relative(this.repository.root, dstAbsPath);
+        const dstRelPath = path.relative(comparison.repository.root, dstAbsPath);
 
         // For modified files, use git difftool
         // Use the mergeBase as the comparison base
-        const args = ['difftool', '--no-prompt', this.mergeBase, '--', dstRelPath];
+        const args = ['difftool', '--no-prompt', comparison.mergeBase, '--', dstRelPath];
 
         try {
             // Execute git difftool - this will launch the external tool
-            await this.repository.exec(args);
+            await comparison.repository.exec(args);
         } catch (error: any) {
             const errorMessage = error.stderr || error.message || 'Unknown error';
             // Check for common error patterns indicating difftool is not configured
@@ -1893,17 +2730,28 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     dispose(): void {
+        this.disposed = true;
+        this.invalidateComparisonCreations();
+        this.disposeExtraRepositoryWatchers();
+        for (const subscription of this.repositoryUiSubscriptions.values()) {
+            subscription.dispose();
+        }
+        this.repositoryUiSubscriptions.clear();
         this.disposables.forEach(d => d.dispose());
     }
 }
 
 function getElementId(element: Element): string {
+    const repositoryRoot = element.repositoryRoot;
+    if (element instanceof RepositoryElement) {
+        return `repo:${repositoryRoot}`;
+    }
     if (element instanceof RefElement) {
-        return 'ref';
+        return `ref:${repositoryRoot}`;
     } else if (element instanceof RepoRootElement) {
-        return 'root';
+        return `root:${repositoryRoot}`;
     } else {
-        return element.dstAbsPath;
+        return `${repositoryRoot}:${element.dstAbsPath}`;
     }
 }
 
@@ -1921,8 +2769,17 @@ function formatDiffStats(stats: IDiffStats): string {
     return parts.join(' ');
 }
 
+class GitTreeCompareFileDecorationProvider implements FileDecorationProvider {
+    provideFileDecoration(uri: Uri): ProviderResult<FileDecoration> {
+        if (uri.scheme !== TREE_RESOURCE_SCHEME || !isStatusCode(uri.query)) {
+            return undefined;
+        }
+        return new FileDecoration(getStatusBadge(uri.query), getStatusText(uri.query), getStatusColor(uri.query));
+    }
+}
+
 function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal: boolean,
-                    showCollapsed: boolean, viewAsList: boolean, showDiffStats: boolean,
+                    iconStyle: IconStyle, showCollapsed: boolean, viewAsList: boolean, showDiffStats: boolean,
                     checkboxState: TreeItemCheckboxState | undefined,
                     asAbsolutePath: (relPath: string) => string): TreeItem {
     const gitIconRoot = asAbsolutePath('resources/git-icons');
@@ -1930,8 +2787,10 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const statsText = showDiffStats && element.stats ? formatDiffStats(element.stats) : '';
         const displayLabel = statsText ? `${element.label}  ${statsText}` : element.label;
         const item = new TreeItem(displayLabel);
-        const statusText = getStatusText(element);
-        item.tooltip = `${element.dstAbsPath} • ${statusText}`;
+        // In fileTheme mode the status is already shown via the file decoration
+        // tooltip, so avoid mentioning it twice.
+        const statusText = iconStyle === 'fileTheme' ? '' : getStatusText(element.status);
+        item.tooltip = statusText ? `${element.dstAbsPath} • ${statusText}` : element.dstAbsPath;
         if (element.srcAbsPath !== element.dstAbsPath) {
             item.tooltip = `${element.srcAbsPath} → ${item.tooltip}`;
         }
@@ -1945,8 +2804,13 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
             }
         }
         item.contextValue = element.isSubmodule ? 'submodule' : 'file';
-        item.id = element.dstAbsPath;
-        item.iconPath = path.join(gitIconRoot,	toIconName(element) + '.svg');
+        item.id = getElementId(element);
+        if (iconStyle === 'fileTheme') {
+            item.resourceUri = toTreeResourceUri(element.dstAbsPath, element.status);
+            item.iconPath = ThemeIcon.File;
+        } else {
+            item.iconPath = path.join(gitIconRoot, toIconName(element.status) + '.svg');
+        }
         if (checkboxState !== undefined) {
             item.checkboxState = checkboxState;
         }
@@ -1963,21 +2827,46 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const item = new TreeItem(element.label, TreeItemCollapsibleState.Collapsed);
         item.tooltip = element.dstAbsPath;
         item.contextValue = 'root';
-        item.id = 'root'
+        item.id = getElementId(element);
         if (!iconsMinimal) {
-            item.iconPath = new ThemeIcon('folder-opened');
+            if (iconStyle === 'fileTheme') {
+                item.resourceUri = toTreeResourceUri(element.dstAbsPath);
+                item.iconPath = ThemeIcon.Folder;
+            } else {
+                item.iconPath = new ThemeIcon('folder-opened');
+            }
+        }
+        return item;
+    } else if (element instanceof RepositoryElement) {
+        // Repository sections stay expanded. The collapsed setting applies to
+        // folders inside each repository, not to the repository itself.
+        const state = element.hasChildren ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.None;
+        const item = new TreeItem(element.label, state);
+        item.description = element.description;
+        item.tooltip = element.repositoryRoot;
+        item.contextValue = 'repo';
+        item.id = getElementId(element);
+        if (!iconsMinimal) {
+            // Matches VS Code's Source Control view, which marks worktrees with
+            // a dedicated icon.
+            item.iconPath = new ThemeIcon(element.isWorktree ? 'worktree' : 'repo');
         }
         return item;
     } else if (element instanceof FolderElement) {
         const item = new TreeItem(element.label, showCollapsed ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.Expanded);
         item.tooltip = element.dstAbsPath;
         item.contextValue = 'folder';
-        item.id = element.dstAbsPath;
+        item.id = getElementId(element);
         if (checkboxState !== undefined) {
             item.checkboxState = checkboxState;
         }
         if (!iconsMinimal) {
-            item.iconPath = new ThemeIcon('folder-opened');
+            if (iconStyle === 'fileTheme') {
+                item.resourceUri = toTreeResourceUri(element.dstAbsPath);
+                item.iconPath = ThemeIcon.Folder;
+            } else {
+                item.iconPath = new ThemeIcon('folder-opened');
+            }
         }
         return item;
     } else if (element instanceof RefElement) {
@@ -1986,7 +2875,7 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         const item = new TreeItem(label, state);
         item.tooltip = `${element.refName} (${path.basename(element.repositoryRoot)})`;
         item.contextValue = 'ref';
-        item.id = 'ref'
+        item.id = getElementId(element);
         if (!iconsMinimal) {
             item.iconPath = new ThemeIcon('git-compare');
         }
@@ -1995,8 +2884,12 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
     throw new Error('unsupported element type');
 }
 
-function toIconName(element: FileElement) {
-    switch(element.status) {
+function toTreeResourceUri(absPath: string, status?: StatusCode): Uri {
+    return Uri.file(absPath).with({ scheme: TREE_RESOURCE_SCHEME, query: status });
+}
+
+function toIconName(status: StatusCode) {
+    switch(status) {
         case 'U': return 'status-untracked';
         case 'A': return 'status-added';
         case 'D': return 'status-deleted';
@@ -2007,8 +2900,12 @@ function toIconName(element: FileElement) {
     }
 }
 
-function getStatusText(element: FileElement) {
-    switch(element.status) {
+function isStatusCode(status: string): status is StatusCode {
+    return status === 'U' || status === 'A' || status === 'D' || status === 'M' || status === 'C' || status === 'T' || status === 'R';
+}
+
+function getStatusText(status: StatusCode) {
+    switch(status) {
         case 'U': return 'Untracked';
         case 'A': return 'Added';
         case 'D': return 'Deleted';
@@ -2016,6 +2913,22 @@ function getStatusText(element: FileElement) {
         case 'C': return 'Conflict';
         case 'T': return 'Type changed';
         case 'R': return 'Renamed';
+    }
+}
+
+function getStatusBadge(status: StatusCode) {
+    return status === 'C' ? '!' : status;
+}
+
+function getStatusColor(status: StatusCode): ThemeColor {
+    switch(status) {
+        case 'U': return new ThemeColor('gitDecoration.untrackedResourceForeground');
+        case 'A': return new ThemeColor('gitDecoration.addedResourceForeground');
+        case 'D': return new ThemeColor('gitDecoration.deletedResourceForeground');
+        case 'M': return new ThemeColor('gitDecoration.modifiedResourceForeground');
+        case 'C': return new ThemeColor('gitDecoration.conflictingResourceForeground');
+        case 'T': return new ThemeColor('gitDecoration.modifiedResourceForeground');
+        case 'R': return new ThemeColor('gitDecoration.renamedResourceForeground');
     }
 }
 
