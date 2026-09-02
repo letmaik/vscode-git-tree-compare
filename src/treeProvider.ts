@@ -1798,7 +1798,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await this.doOpenChanges(comparison, status.srcAbsPath, status.dstAbsPath, status.status);
     }
 
-    async doOpenChanges(comparison: RepositoryComparison, srcAbsPath: string, dstAbsPath: string, status: StatusCode, preview=true) {
+    async doOpenChanges(comparison: RepositoryComparison, srcAbsPath: string, dstAbsPath: string, status: StatusCode) {
         const right = Uri.file(dstAbsPath);
         const left = this.gitApi.toGitUri(Uri.file(srcAbsPath), comparison.mergeBase);
 
@@ -1810,7 +1810,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         }
 
         const options: TextDocumentShowOptions = {
-            preview: preview
+            preview: true
         };
         const filename = path.basename(dstAbsPath);
         return await commands.executeCommand('vscode.diff',
@@ -1823,8 +1823,29 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             return;
         }
         const withinFolder = entry instanceof FolderElement ? entry.dstAbsPath : undefined;
+        const resources: [Uri, Uri | undefined, Uri | undefined][] = [];
+
         for (const file of comparison.iterFiles(withinFolder)) {
-            this.doOpenChanges(comparison, file.srcAbsPath, file.dstAbsPath, file.status, false);
+            const right = Uri.file(file.dstAbsPath);
+            const left = this.gitApi.toGitUri(Uri.file(file.srcAbsPath), comparison.mergeBase);
+
+            if (file.status === 'A' || file.status === 'U') {
+                resources.push([right, undefined, right]);
+            } else if (file.status === 'D') {
+                resources.push([Uri.file(file.srcAbsPath), left, undefined]);
+            } else {
+                resources.push([right, left, right]);
+            }
+        }
+
+        if (resources.length > 0) {
+            try {
+                await commands.executeCommand('vscode.changes', `Changes against ${comparison.baseRef}`, resources);
+            } catch (e: any) {
+                const msg = 'Opening all changes failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+            }
         }
     }
 

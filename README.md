@@ -20,6 +20,8 @@ In bigger projects with many files it also provides **context**, it gives you a 
 
 - Open Changes or Open File
 
+- Open all changes at once in VS Code's multi-file diff editor
+
 - Discard Changes
 
 - Automatic refresh on file changes
