@@ -1,3 +1,22 @@
+## 1.21.0
+
+* Add multi-repository tree view showing all repositories of the workspace side by side [#139](https://github.com/letmaik/vscode-git-tree-compare/pull/139)
+* Add optional commits panel to restrict the comparison to a subset of commits [#146](https://github.com/letmaik/vscode-git-tree-compare/pull/146)
+* Add git worktree switching via "Change Worktree..." [#145](https://github.com/letmaik/vscode-git-tree-compare/pull/145)
+* Add "Open All Changes" using VS Code's multi-diff editor [#157](https://github.com/letmaik/vscode-git-tree-compare/pull/157)
+* Add configurable file theme icons [#147](https://github.com/letmaik/vscode-git-tree-compare/pull/147)
+* Add per-file diff stats (insertions/deletions) [#143](https://github.com/letmaik/vscode-git-tree-compare/pull/143)
+* Add collapse all button [#149](https://github.com/letmaik/vscode-git-tree-compare/pull/149)
+* Add button to hide files ticked off with checkboxes [#141](https://github.com/letmaik/vscode-git-tree-compare/pull/141)
+* Show status badges when using file theme icons [#151](https://github.com/letmaik/vscode-git-tree-compare/pull/151)
+* Use the base branch of the remote instead of the branch itself when the current branch has no upstream [#158](https://github.com/letmaik/vscode-git-tree-compare/pull/158)
+* Use the remote matching the pull request repository instead of assuming "origin" [#154](https://github.com/letmaik/vscode-git-tree-compare/pull/154) [#155](https://github.com/letmaik/vscode-git-tree-compare/pull/155)
+* Remove the refreshIndex option in favor of git's diff.autoRefreshIndex [#156](https://github.com/letmaik/vscode-git-tree-compare/pull/156)
+* Fix working tree changes being reported for files that were not modified [#152](https://github.com/letmaik/vscode-git-tree-compare/pull/152)
+* Fix the tree not refreshing when switching to a linked worktree [#148](https://github.com/letmaik/vscode-git-tree-compare/pull/148)
+* Fix the view not activating via workbench.view.extension.gitTreeCompare when no repository was open yet, and explain empty states with welcome content [#159](https://github.com/letmaik/vscode-git-tree-compare/pull/159)
+* Raise the minimum required VS Code version to 1.108.0
+
 ## 1.20.0
 
 * Add `autoReveal` option to automatically reveal and select the tree item corresponding to the active editor (enabled by default)
