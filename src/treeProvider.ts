@@ -14,7 +14,8 @@ import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
 import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
          getDiffStatuses, diffTrees, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
-         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile, listWorktrees,
+         getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile,
+         listWorktrees, IWorktreeInfo,
          getBranchCommits as gitGetBranchCommits, getUncommittedSummary as gitGetUncommittedSummary,
          getEmptyTreeId, EMPTY_TREE_ID, ICommitInfo, IUncommittedSummary } from './gitHelper'
 import { CommitFilterSpec, ComparisonInfo, ComparisonHost, commitFilterSpecEquals } from './commitsProvider'
@@ -79,7 +80,8 @@ class RepoRootElement extends FolderElement {
 
 class RepositoryElement {
     constructor(public repositoryRoot: string, public label: string, public hasChildren: boolean,
-                public description: string | undefined = undefined) {}
+                public description: string | undefined = undefined,
+                public isWorktree: boolean = false) {}
 }
 
 class RefElement {
@@ -604,11 +606,36 @@ class ChangeBaseCommitItem implements QuickPickItem {
 	get description(): string { return ""; }
 }
 
-class ChangeRepositoryItem implements QuickPickItem {
+interface RepositoryPickItem extends QuickPickItem {
+    repositoryPath: string;
+}
+
+class ChangeRepositoryItem implements RepositoryPickItem {
     constructor(public repositoryRoot: string) { }
 
+    get repositoryPath(): string { return normalizePath(this.repositoryRoot); }
 	get label(): string { return path.basename(this.repositoryRoot); }
 	get description(): string { return this.repositoryRoot; }
+}
+
+class WorkingTreePickItem implements RepositoryPickItem {
+    constructor(public repositoryPath: string) { }
+
+    get label(): string { return '$(home) Working Tree'; }
+    get description(): string { return this.repositoryPath; }
+}
+
+class ChangeWorktreeItem implements RepositoryPickItem {
+    constructor(public worktree: IWorktreeInfo) { }
+
+    get repositoryPath(): string { return this.worktree.path; }
+    get label(): string {
+        if (this.worktree.branch) {
+            return `$(git-branch) ${this.worktree.branch}`;
+        }
+        return `$(git-commit) ${this.worktree.head.substr(0, 8)}`;
+    }
+    get description(): string { return this.worktree.path; }
 }
 
 type FolderAbsPath = string;
@@ -661,6 +688,10 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     // One comparison per repository, keyed by canonical repository root.
     private comparisons = new Map<FolderAbsPath, RepositoryComparison>();
+    // Workspace repository root -> linked worktree currently displayed for it.
+    // Only used in the repository-node layout, where each repository node shows
+    // one checkout of that repository.
+    private worktreeOverrides = new Map<FolderAbsPath, FolderAbsPath>();
     // Maps any path used to look up a repository to its canonical root.
     private rootAliases = new Map<string, FolderAbsPath>();
     // In-flight creations, so concurrent lookups share one RepositoryComparison.
@@ -1157,6 +1188,35 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
      * extension's repository count, because neither of those matches the
      * layout this provider actually renders.
      */
+    /**
+     * Worktree switching operates on the single active comparison, so it is
+     * only offered in the single-repository layout. In the repository-node
+     * layout there is no unambiguous "current" repository to switch.
+     */
+    private updateWorktreeContext(showRepositoryNodes: boolean) {
+        const comparison = showRepositoryNodes ? undefined : this.activeComparison;
+        if (!comparison) {
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
+            return;
+        }
+        listWorktrees(comparison.repository).then(worktrees => {
+            // The layout or active repository may have changed while listing.
+            if (this.disposed || this.activeComparison !== comparison || this.showRepositoryNodes()) {
+                return;
+            }
+            const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
+            const viewingWorktree = workspaceRoot !== undefined &&
+                comparison.repoRoot !== workspaceRoot;
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', viewingWorktree);
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', worktrees.length > 1);
+        }, e => {
+            this.log('Listing the worktrees failed', e);
+            commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
+            commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
+        });
+    }
+
     private updateViewState() {
         const showRepositoryNodes = this.showRepositoryNodes();
         commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', showRepositoryNodes);
@@ -1165,6 +1225,8 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             ? [...this.comparisons.values()].some(c => c.searchFilter)
             : !!this.activeComparison?.searchFilter;
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', isFiltered);
+
+        this.updateWorktreeContext(showRepositoryNodes);
 
         if (!this.treeView) {
             return;
@@ -1235,6 +1297,140 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 this.log(msg, e);
                 window.showErrorMessage(`${msg}: ${e.message}`);
             }
+        }
+        this.updateViewState();
+        this.fireTreeDataChange();
+    }
+
+    /** The checkout currently displayed for a workspace repository root. */
+    private displayedRoot(workspaceRoot: string): string {
+        return this.worktreeOverrides.get(normalizePath(workspaceRoot)) ?? normalizePath(workspaceRoot);
+    }
+
+    /**
+     * The workspace folder that is a worktree of the repository the given
+     * worktree list belongs to, i.e. where "the working tree" is for that
+     * repository. Scoped to that repository's worktrees rather than the global
+     * repository list, so that a multi-root workspace does not resolve to an
+     * unrelated repository.
+     */
+    private findWorkspaceWorktreeRoot(worktrees: IWorktreeInfo[]): string | undefined {
+        const worktreePaths = new Set(worktrees.map(wt => normalizePath(wt.path)));
+        for (const root of this.getRepositoryRoots(true)) {
+            const normalized = normalizePath(root);
+            if (worktreePaths.has(normalized)) {
+                return normalized;
+            }
+        }
+        return undefined;
+    }
+
+    private async listWorktreesOf(comparison: RepositoryComparison): Promise<IWorktreeInfo[] | undefined> {
+        try {
+            return await listWorktrees(comparison.repository);
+        } catch (e: any) {
+            const msg = 'Listing the worktrees failed';
+            this.log(msg, e);
+            window.showErrorMessage(`${msg}: ${e.message}`);
+            return undefined;
+        }
+    }
+
+    async switchToWorkingTree(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+        const worktrees = await this.listWorktreesOf(comparison);
+        if (!worktrees) {
+            return;
+        }
+        const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
+        if (!workspaceRoot) {
+            window.showErrorMessage('No workspace repository found');
+            return;
+        }
+        if (workspaceRoot === comparison.repoRoot) {
+            return;
+        }
+        await this.showWorktree(workspaceRoot, workspaceRoot);
+    }
+
+    async promptChangeWorktree(entry?: RefElement | RepositoryElement) {
+        const comparison = await this.resolveComparison(entry);
+        if (!comparison) {
+            window.showErrorMessage('No repository selected');
+            return;
+        }
+
+        const worktrees = await this.listWorktreesOf(comparison);
+        if (!worktrees) {
+            return;
+        }
+        const workspaceRoot = this.findWorkspaceWorktreeRoot(worktrees);
+
+        let picks: RepositoryPickItem[] = worktrees
+            .filter(wt => wt.path !== comparison.repoRoot && wt.path !== workspaceRoot)
+            .map(wt => new ChangeWorktreeItem(wt));
+
+        picks.sort((a, b) => a.label.localeCompare(b.label));
+
+        if (workspaceRoot && workspaceRoot !== comparison.repoRoot) {
+            picks = [new WorkingTreePickItem(workspaceRoot), ...picks];
+        }
+
+        if (picks.length === 0) {
+            window.showInformationMessage('No other worktrees available');
+            return;
+        }
+
+        const choice = await window.showQuickPick(picks, { placeHolder: 'Select a worktree' });
+        if (!choice) {
+            return;
+        }
+        await this.showWorktree(choice.repositoryPath, workspaceRoot);
+    }
+
+    /**
+     * Displays a checkout of a repository. In the repository-node layout the
+     * repository keeps its node and only the checkout it shows changes, because
+     * the nodes are the workspace repositories. Otherwise the view as a whole
+     * switches to that checkout.
+     */
+    private async showWorktree(worktreeRoot: string, workspaceRoot: string | undefined) {
+        if (!this.showRepositoryNodes()) {
+            await this.changeRepository(worktreeRoot);
+            return;
+        }
+        if (!workspaceRoot) {
+            window.showErrorMessage('No workspace repository found');
+            return;
+        }
+        const key = normalizePath(workspaceRoot);
+        const previousRoot = this.displayedRoot(workspaceRoot);
+        if (normalizePath(worktreeRoot) === key) {
+            this.worktreeOverrides.delete(key);
+        } else {
+            this.worktreeOverrides.set(key, normalizePath(worktreeRoot));
+            try {
+                // Surfaces load errors here rather than as an empty node.
+                await this.loadComparison(worktreeRoot);
+            } catch (e: any) {
+                this.worktreeOverrides.delete(key);
+                const msg = 'Changing the worktree failed';
+                this.log(msg, e);
+                window.showErrorMessage(`${msg}: ${e.message}`);
+                return;
+            }
+        }
+        // The previous checkout is no longer shown in the tree, so a commits
+        // binding pointing at it would leave both its commit list and any filter
+        // it applied unreachable.
+        if (this.commitsRepoRoot !== undefined &&
+                normalizePath(this.commitsRepoRoot) === previousRoot &&
+                previousRoot !== this.displayedRoot(workspaceRoot)) {
+            this.bindCommitsTo(this.displayedRoot(workspaceRoot));
         }
         this.updateViewState();
         this.fireTreeDataChange();
@@ -1394,10 +1590,17 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     /** Drops comparisons for repositories that are no longer in the workspace. */
     private pruneComparisons() {
         const liveRoots = new Set(this.getRepositoryRoots().map(root => this.rootAliases.get(root) ?? root));
+        for (const workspaceRoot of [...this.worktreeOverrides.keys()]) {
+            if (!liveRoots.has(this.rootAliases.get(workspaceRoot) ?? workspaceRoot)) {
+                this.worktreeOverrides.delete(workspaceRoot);
+            }
+        }
+        const displayedWorktrees = new Set(this.worktreeOverrides.values());
         for (const [repoRoot, comparison] of [...this.comparisons]) {
             // Repositories outside the workspace (linked worktrees) never appear
-            // in the workspace repository list, so keep them while they are active.
-            const keep = liveRoots.has(repoRoot) ||
+            // in the workspace repository list, so keep them while they are active
+            // or displayed by a repository node.
+            const keep = liveRoots.has(repoRoot) || displayedWorktrees.has(repoRoot) ||
                 (comparison === this.activeComparison && comparison.isOutsideWorkspace);
             if (keep) {
                 continue;
@@ -1627,8 +1830,15 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
                 return roots.map(root => {
                     const name = path.basename(root);
                     const ambiguous = (nameCounts.get(name) ?? 0) > 1;
-                    return new RepositoryElement(root, name, true,
-                        ambiguous ? path.basename(path.dirname(root)) : undefined);
+                    const displayed = this.displayedRoot(root);
+                    const isWorktree = displayed !== normalizePath(root);
+                    // A repository showing a linked worktree is labelled with
+                    // that worktree, which is more useful than the parent
+                    // folder used to disambiguate equal repository names.
+                    const description = isWorktree
+                        ? path.basename(displayed)
+                        : (ambiguous ? path.basename(path.dirname(root)) : undefined);
+                    return new RepositoryElement(displayed, name, true, description, isWorktree);
                 });
             }
             const comparison = this.activeComparison;
@@ -2958,7 +3168,9 @@ function toTreeItem(element: Element, openChangesOnSelect: boolean, iconsMinimal
         item.contextValue = 'repo';
         item.id = getElementId(element);
         if (!iconsMinimal) {
-            item.iconPath = new ThemeIcon('repo');
+            // Matches VS Code's Source Control view, which marks worktrees with
+            // a dedicated icon.
+            item.iconPath = new ThemeIcon(element.isWorktree ? 'worktree' : 'repo');
         }
         return item;
     } else if (element instanceof FolderElement) {

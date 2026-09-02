@@ -57,6 +57,16 @@ export function activate(context: ExtensionContext) {
             provider!.promptChangeRepository();
         });
     });
+    commands.registerCommand(NAMESPACE + '.changeWorktree', node => {
+        runAfterInit(() => {
+            provider!.promptChangeWorktree(node);
+        });
+    });
+    commands.registerCommand(NAMESPACE + '.switchToWorkingTree', node => {
+        runAfterInit(() => {
+            provider!.switchToWorkingTree(node);
+        });
+    });
     commands.registerCommand(NAMESPACE + '.changeBase', node => {
         runAfterInit(() => {
             provider!.promptChangeBase(node);
@@ -162,6 +172,8 @@ export function activate(context: ExtensionContext) {
         commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
         commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
+        commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
+        commands.executeCommand('setContext', NAMESPACE + '.hasWorktrees', false);
         commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);

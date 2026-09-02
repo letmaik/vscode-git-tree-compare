@@ -29,7 +29,7 @@
     },
     "homepage": "https://github.com/letmaik/vscode-git-tree-compare",
     "engines": {
-        "vscode": "^1.86.0"
+        "vscode": "^1.108.0"
     },
     "capabilities": {
         "virtualWorkspaces": false,
@@ -74,6 +74,18 @@
                 "command": "gitTreeCompare.changeRepository",
                 "title": "Change Repository...",
                 "icon": "$(repo)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.changeWorktree",
+                "title": "Change Worktree...",
+                "icon": "$(git-branch)",
+                "category": "Git Tree Compare"
+            },
+            {
+                "command": "gitTreeCompare.switchToWorkingTree",
+                "title": "Switch to Working Tree",
+                "icon": "$(home)",
                 "category": "Git Tree Compare"
             },
             {
@@ -315,6 +327,16 @@
             ],
             "view/title": [
                 {
+                    "command": "gitTreeCompare.switchToWorkingTree",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitTreeCompare.viewingWorktree",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "gitTreeCompare.changeWorktree",
+                    "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitTreeCompare.hasWorktrees",
+                    "group": "1_state"
+                },
+                {
                     "command": "gitTreeCompare.changeRepository",
                     "when": "view == gitTreeCompare && !gitTreeCompare.showRepositoryNodes && gitOpenRepositoryCount != 1",
                     "group": "1_state"
@@ -442,6 +464,11 @@
             ],
             "view/item/context": [
                 {
+                    "command": "gitTreeCompare.changeWorktree",
+                    "when": "view == gitTreeCompare && viewItem == repo",
+                    "group": "1_state"
+                },
+                {
                     "command": "gitTreeCompare.changeBase",
                     "when": "view == gitTreeCompare && viewItem == repo",
                     "group": "inline@1"
@@ -534,6 +561,10 @@
                 {
                     "command": "gitTreeCompare.changeRepository",
                     "when": "view == gitTreeCompare && viewItem == ref && !gitTreeCompare.showRepositoryNodes && gitOpenRepositoryCount != 1"
+                },
+                {
+                    "command": "gitTreeCompare.changeWorktree",
+                    "when": "view == gitTreeCompare && viewItem == ref && !gitTreeCompare.showRepositoryNodes && gitTreeCompare.hasWorktrees"
                 },
                 {
                     "command": "gitTreeCompare.changeBase",
@@ -769,7 +800,7 @@
         "@types/byline": "4.2.31",
         "@types/file-type": "^5.2.1",
         "@types/node": "^13.5.0",
-        "@types/vscode": "^1.86.0",
+        "@types/vscode": "^1.108.0",
         "@types/which": "^1.0.28",
         "@vscode/vsce": "^2.20.1",
         "ts-loader": "^9.2.6",
