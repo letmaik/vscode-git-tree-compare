@@ -778,6 +778,15 @@
                     "description": "Whether to omit unstaged changes from the diff. When enabled, only staged changes will appear in the tree.",
                     "default": false
                 },
+                "gitTreeCompare.viewMode": {
+                    "type": "string",
+                    "enum": [
+                        "tree",
+                        "list"
+                    ],
+                    "description": "Whether to show changed files as a folder tree or as a flat list. The \"View as List\" and \"View as Tree\" actions in the tree menu update this setting.",
+                    "default": "tree"
+                },
                 "gitTreeCompare.sortOrder": {
                     "type": "string",
                     "enum": [

@@ -168,8 +168,7 @@ export function activate(context: ExtensionContext) {
         git.onOutput.addListener('log', onOutput);
         disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
-        // Set initial context for menu enablement (starts in tree view mode)
-        commands.executeCommand('setContext', NAMESPACE + '.viewAsList', false);
+        // Set initial context for menu enablement
         commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
         commands.executeCommand('setContext', NAMESPACE + '.isFiltered', false);
         commands.executeCommand('setContext', NAMESPACE + '.viewingWorktree', false);
@@ -177,6 +176,7 @@ export function activate(context: ExtensionContext) {
         commands.executeCommand('setContext', NAMESPACE + '.showRepositoryNodes', false);
 
         provider = new GitTreeCompareProvider(git, gitApi, outputChannel, context.globalState, context.asAbsolutePath);
+        commands.executeCommand('setContext', NAMESPACE + '.viewAsList', provider.viewAsList);
 
         const treeView = window.createTreeView(
             NAMESPACE,
