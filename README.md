@@ -106,6 +106,8 @@ comparison changes (a new base, or new commits on `HEAD`).
 
 `gitTreeCompare.resetCheckboxOnFileChange` When enabled, automatically resets a file's checkbox when the file is modified after being checked. This ensures that checked files reflect their reviewed state, and any subsequent modifications require re-review. Only effective when `showCheckboxes` is enabled.
 
+`gitTreeCompare.viewMode` Determines whether changed files are shown as a folder tree (`tree`, default) or as a flat list (`list`). The "View as List" and "View as Tree" actions in the tree menu update this setting, so the chosen view is remembered across restarts.
+
 `gitTreeCompare.refSortOrder` Determines how refs (branches, tags) are sorted when changing the comparison base. Default is `committerdate` which sorts by most recently committed first, making it easy to find recently-used branches. Can be set to `alphabetically` for alphabetical sorting.
 
 `gitTreeCompare.openChangesWithDifftool` When enabled, adds an "Open Changes with Difftool" command to the context menu for files. This command opens the changes in the external diff tool configured in Git (e.g., via `git config diff.tool <tool-name>`). Default is disabled. Note: This requires you to have a difftool configured in your Git settings.
