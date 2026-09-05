@@ -1,3 +1,7 @@
+## Unreleased
+
+* Remember the tree/list view mode across restarts via the new `viewMode` setting [#162](https://github.com/letmaik/vscode-git-tree-compare/issues/162)
+
 ## 1.21.0
 
 * Add multi-repository tree view showing all repositories of the workspace side by side [#139](https://github.com/letmaik/vscode-git-tree-compare/pull/139)

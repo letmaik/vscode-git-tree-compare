@@ -27,6 +27,7 @@ import { Octokit } from '@octokit/rest';
 
 
 type SortOrder = 'name' | 'path' | 'status' | 'recentlyModified';
+type ViewMode = 'tree' | 'list';
 type IconStyle = 'status' | 'fileTheme';
 
 const MAX_DIFF_ENTRIES = 10000;
@@ -682,6 +683,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     resetCheckboxOnFileChange: boolean;
     omitUntrackedFiles: boolean;
     omitUnstagedChanges: boolean;
+    viewAsList: boolean;
     sortOrder: SortOrder;
     private autoReveal: boolean;
     showDiffStats: boolean;
@@ -710,7 +712,6 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private commitsRepoRoot: FolderAbsPath | undefined;
 
     // Dynamic options
-    viewAsList = false;
     private hideCheckedFiles = false;
 
     // UI state
@@ -1750,6 +1751,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.resetCheckboxOnFileChange = config.get<boolean>('resetCheckboxOnFileChange', false);
         this.omitUntrackedFiles = config.get<boolean>('omitUntrackedFiles', false);
         this.omitUnstagedChanges = config.get<boolean>('omitUnstagedChanges', false);
+        this.viewAsList = config.get<ViewMode>('viewMode', 'tree') === 'list';
         this.sortOrder = config.get<SortOrder>('sortOrder', 'path');
         this.autoReveal = config.get<boolean>('autoReveal', true);
         this.showDiffStats = config.get<boolean>('showDiffStats', false);
@@ -1993,6 +1995,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldshowCheckboxes = this.showCheckboxes;
         const oldOmitUntrackedFiles = this.omitUntrackedFiles;
         const oldOmitUnstagedChanges = this.omitUnstagedChanges;
+        const oldViewAsList = this.viewAsList;
         const oldSortOrder = this.sortOrder;
         const oldMultiRepositoryView = this.multiRepositoryView;
         const oldShowDiffStats = this.showDiffStats;
@@ -2000,6 +2003,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         if (oldshowCheckboxes && !this.showCheckboxes && this.hideCheckedFiles) {
             this.hideCheckedFiles = false;
             commands.executeCommand('setContext', NAMESPACE + '.hideCheckedFiles', false);
+        }
+        if (oldViewAsList != this.viewAsList) {
+            commands.executeCommand('setContext', NAMESPACE + '.viewAsList', this.viewAsList);
         }
         if (oldTreeRootIsRepo != this.treeRootIsRepo ||
             oldInclude != this.includeFilesOutsideWorkspaceFolderRoot ||
@@ -2015,6 +2021,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldshowCheckboxes != this.showCheckboxes ||
             oldOmitUntrackedFiles != this.omitUntrackedFiles ||
             oldOmitUnstagedChanges != this.omitUnstagedChanges ||
+            oldViewAsList != this.viewAsList ||
             oldSortOrder != this.sortOrder ||
             oldShowDiffStats != this.showDiffStats) {
 
@@ -2850,14 +2857,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         await config.update('showCheckboxes', !v, true);
     }
 
-    viewAsTree(v: boolean) {
-        const viewAsList = !v;
-        if (viewAsList === this.viewAsList)
-            return;
-        this.viewAsList = viewAsList;
-        commands.executeCommand('setContext', NAMESPACE + '.viewAsList', viewAsList);
-        this.log('Refreshing tree');
-        this._onDidChangeTreeData.fire();
+    async viewAsTree(v: boolean) {
+        const config = workspace.getConfiguration(NAMESPACE);
+        await config.update('viewMode', v ? 'tree' : 'list', true);
     }
 
     setHideCheckedFiles(hide: boolean) {
