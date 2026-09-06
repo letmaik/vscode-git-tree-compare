@@ -93,6 +93,58 @@ export async function getAbsGitCommonDir(repo: Repository): Promise<string> {
     return dir;
 }
 
+/**
+ * Highest gh-stack schema version this code understands. gh-stack itself refuses to
+ * read files newer than the version it knows, and so do we, rather than risk
+ * misreading a format that changed.
+ */
+const GH_STACK_SCHEMA_VERSION = 1;
+
+/**
+ * The parent branch of the given branch according to gh-stack's local metadata,
+ * or undefined if gh-stack is not in use or the branch is not part of a stack.
+ *
+ * gh-stack stores its stacks in `<git dir>/gh-stack`, ordered bottom-up, so the
+ * parent of a branch is the preceding entry, or the stack's trunk for the first
+ * one. The file lists every stack of the repository and keeps branches after
+ * their pull request has been merged, hence the membership check.
+ */
+export async function getStackParentBranch(repo: Repository, branch: string): Promise<string | undefined> {
+    let content: string;
+    try {
+        const gitDir = await getAbsGitDir(repo);
+        content = await fs.readFile(path.join(gitDir, 'gh-stack'), 'utf8');
+    } catch (e) {
+        // gh-stack is not used in this repository.
+        return;
+    }
+    let data: any;
+    try {
+        data = JSON.parse(content);
+    } catch (e) {
+        return;
+    }
+    if (typeof data?.schemaVersion !== 'number' || data.schemaVersion > GH_STACK_SCHEMA_VERSION) {
+        return;
+    }
+    if (!Array.isArray(data.stacks)) {
+        return;
+    }
+    for (const stack of data.stacks) {
+        if (!Array.isArray(stack?.branches)) {
+            continue;
+        }
+        const names: any[] = stack.branches.map((b: any) => b?.branch);
+        const index = names.indexOf(branch);
+        if (index === -1) {
+            continue;
+        }
+        const parent = index === 0 ? stack.trunk?.branch : names[index - 1];
+        return typeof parent === 'string' && parent ? parent : undefined;
+    }
+    return;
+}
+
 export async function getDefaultBranch(repo: Repository, head: Ref): Promise<string | undefined> {
     // determine which remote HEAD is tracking
     let remote: string

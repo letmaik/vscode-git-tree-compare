@@ -12,7 +12,7 @@ import { NAMESPACE } from './constants'
 import { Repository, Git } from './git/git'
 import { Ref, RefType } from './git/api/git'
 import { anyEvent, filterEvent, eventToPromise } from './git/util'
-import { getDefaultBranch, getHeadModificationDate, getBranchCommit,
+import { getDefaultBranch, getHeadModificationDate, getBranchCommit, getStackParentBranch,
          getDiffStatuses, diffTrees, IDiffStatus, IDiffStats, StatusCode, getAbsGitDir,
          getWorkspaceFolders, getGitRepositoryFolders, hasUncommittedChanges, rmFile,
          listWorktrees, IWorktreeInfo,
@@ -102,6 +102,7 @@ interface IComparisonHost {
 
     readonly treeRootIsRepo: boolean;
     readonly fullDiff: boolean;
+    readonly detectStackBaseBranch: boolean;
     readonly findRenames: boolean;
     readonly renameThreshold: number;
     readonly omitUntrackedFiles: boolean;
@@ -136,6 +137,8 @@ class RepositoryComparison {
     treeRoot: FolderAbsPath;
 
     baseRef = '';
+    /** Whether the current base ref was picked explicitly by the user. */
+    private baseRefExplicit = false;
     mergeBase = '';
     headLastChecked = new Date(0);
     headName: string | undefined = undefined;
@@ -308,6 +311,18 @@ class RepositoryComparison {
             if (!exists) {
                 // happens when branch was deleted
                 baseRef = undefined;
+            }
+            // An explicit choice stands until the branch changes, so that stack
+            // detection does not undo it on the next refresh.
+            this.baseRefExplicit = baseRef !== undefined;
+        } else if (this.headName !== headName) {
+            this.baseRefExplicit = false;
+        }
+        if (!baseRef && this.host.detectStackBaseBranch && !this.baseRefExplicit && headName) {
+            const parent = await getStackParentBranch(this.repository, headName);
+            if (parent && parent !== headName && await this.isRefExisting(parent)) {
+                this.host.log(`Using gh-stack parent branch as base ref: ${parent}`);
+                baseRef = parent;
             }
         }
         if (!baseRef) {
@@ -675,6 +690,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private iconsMinimal: boolean;
     private iconStyle: IconStyle;
     fullDiff: boolean;
+    detectStackBaseBranch: boolean;
     findRenames: boolean;
     renameThreshold: number;
     private showCollapsed: boolean;
@@ -1743,6 +1759,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         this.iconsMinimal = config.get<boolean>('iconsMinimal', false);
         this.iconStyle = config.get<IconStyle>('iconStyle', 'status');
         this.fullDiff = config.get<string>('diffMode') === 'full';
+        this.detectStackBaseBranch = config.get<boolean>('detectStackBaseBranch', true);
         this.findRenames = config.get<boolean>('findRenames', true);
         this.renameThreshold = config.get<number>('renameThreshold', 50);
         this.showCollapsed = config.get<boolean>('collapsed', false);
@@ -1989,6 +2006,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
         const oldIconsMinimal = this.iconsMinimal;
         const oldIconStyle = this.iconStyle;
         const oldFullDiff = this.fullDiff;
+        const oldDetectStackBaseBranch = this.detectStackBaseBranch;
         const oldFindRenames = this.findRenames;
         const oldRenameThreshold = this.renameThreshold;
         const oldCompactFolders = this.compactFolders;
@@ -2015,6 +2033,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             oldIconStyle != this.iconStyle ||
             (!oldAutoRefresh && this.autoRefresh) ||
             oldFullDiff != this.fullDiff ||
+            oldDetectStackBaseBranch != this.detectStackBaseBranch ||
             oldFindRenames != this.findRenames ||
             oldRenameThreshold != this.renameThreshold ||
             oldCompactFolders != this.compactFolders ||
@@ -2050,6 +2069,7 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
             const needsReload =
                 oldFullDiff != this.fullDiff ||
+                oldDetectStackBaseBranch != this.detectStackBaseBranch ||
                 oldFindRenames != this.findRenames ||
                 oldRenameThreshold != this.renameThreshold ||
                 (!oldAutoRefresh && this.autoRefresh) ||

@@ -721,6 +721,11 @@
                     "description": "Whether to compare against the selected base ref directly (full mode) or by computing a merge base first (merge mode).",
                     "default": "merge"
                 },
+                "gitTreeCompare.detectStackBaseBranch": {
+                    "type": "boolean",
+                    "description": "Whether to use the parent branch of the current gh-stack stack as base branch, if the current branch is part of one. Takes precedence over the last base branch used for the repository, but not over an explicit choice made for the current branch.",
+                    "default": true
+                },
                 "gitTreeCompare.iconsMinimal": {
                     "type": "boolean",
                     "description": "Whether to use a compact icon alignment (like Seti file icon theme) where only files have icons.",
