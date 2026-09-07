@@ -820,7 +820,8 @@
         "vscode:prepublish": "webpack --mode production",
         "compile": "webpack --mode none",
         "watch": "webpack --mode none --watch --env development",
-        "test-compile": "tsc -p ./"
+        "test-compile": "tsc -p ./",
+        "test": "npm run test-compile -- --skipLibCheck && node --test test/*.test.cjs"
     },
     "devDependencies": {
         "@types/byline": "4.2.31",

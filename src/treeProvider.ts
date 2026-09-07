@@ -1142,7 +1142,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
 
     private async createComparison(repositoryRoot: string, generation: number): Promise<RepositoryComparison> {
         const requestedRepositoryRoot = normalizePath(repositoryRoot);
-        const actualRepositoryRoot = normalizePath(await this.git.getRepositoryRoot(requestedRepositoryRoot));
+        // Keep the path registered with VS Code's Git extension. Resolving a
+        // symlink here would make the generated git: URIs refer to a different
+        // path, which its file system provider cannot associate with the repo.
+        // Match the root exactly so an unopened nested worktree is not mistaken
+        // for its containing repository.
+        const openRepository = this.gitApi.repositories.find(
+            repo => normalizePath(repo.rootUri.fsPath) === requestedRepositoryRoot);
+        const actualRepositoryRoot = openRepository
+            ? requestedRepositoryRoot
+            : normalizePath(await this.git.getRepositoryRoot(requestedRepositoryRoot));
         const dotGit = await this.git.getRepositoryDotGit(actualRepositoryRoot);
         const repository = this.git.open(actualRepositoryRoot, dotGit);
         const absGitDir = await getAbsGitDir(repository);

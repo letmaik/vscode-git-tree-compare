@@ -2,6 +2,7 @@
 node_modules
 out/
 src/
+test/
 .gitignore
 tsconfig.json
 webpack.config.js
