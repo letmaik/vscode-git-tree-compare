@@ -123,6 +123,9 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand(NAMESPACE + '.collapseAll', () => {
         runAfterInit(() => provider!.collapseAll());
     });
+    commands.registerCommand(NAMESPACE + '.expandAll', () => {
+        runAfterInit(() => provider!.expandAll());
+    });
     commands.registerCommand(NAMESPACE + '.filterFiles', node => {
         runAfterInit(() => provider!.filterFiles(node));
     });

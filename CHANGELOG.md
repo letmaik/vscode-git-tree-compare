@@ -1,6 +1,7 @@
 ## Unreleased
 
 * Remember the tree/list view mode across restarts via the new `viewMode` setting [#162](https://github.com/letmaik/vscode-git-tree-compare/issues/162)
+* Add expand all button next to collapse all, can be hidden via the new `showExpandAll` setting
 
 ## 1.21.0
 

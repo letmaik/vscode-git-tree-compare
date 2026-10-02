@@ -722,10 +722,11 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     private pendingRefreshTimer: NodeJS.Timeout | undefined;
     private refreshInProgress = false;
     private disposed = false;
-    // Incremented on each "Collapse All". Changing folder ids makes VS Code
-    // apply their collapsed state instead of restoring their previous state.
-    // The ref keeps its stable id and remains expanded.
-    private collapseGeneration = 0;
+    // Incremented on each "Collapse All" / "Expand All". Changing folder ids
+    // makes VS Code apply the forced state instead of restoring their previous
+    // state. The ref keeps its stable id and remains expanded.
+    private folderStateGeneration = 0;
+    private forcedFolderState: TreeItemCollapsibleState | undefined;
 
     // Other
     private readonly disposables: Disposable[] = [];
@@ -1770,9 +1771,9 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
             }
         }
         const item = toTreeItem(element, this.openChangesOnSelect, this.iconsMinimal, this.iconStyle, this.showCollapsed, this.viewAsList, this.showDiffStats, checkboxState, this.asAbsolutePath);
-        if (this.collapseGeneration > 0 && element instanceof FolderElement) {
-            item.collapsibleState = TreeItemCollapsibleState.Collapsed;
-            item.id = getElementId(element) + '#c' + this.collapseGeneration;
+        if (this.forcedFolderState !== undefined && element instanceof FolderElement) {
+            item.collapsibleState = this.forcedFolderState;
+            item.id = getElementId(element) + '#g' + this.folderStateGeneration;
         }
         return item;
     }
@@ -2893,7 +2894,16 @@ export class GitTreeCompareProvider implements TreeDataProvider<Element>, Dispos
     }
 
     async collapseAll() {
-        this.collapseGeneration++;
+        this.setFolderState(TreeItemCollapsibleState.Collapsed);
+    }
+
+    async expandAll() {
+        this.setFolderState(TreeItemCollapsibleState.Expanded);
+    }
+
+    private setFolderState(state: TreeItemCollapsibleState) {
+        this.forcedFolderState = state;
+        this.folderStateGeneration++;
         this.fireTreeDataChange();
     }
 

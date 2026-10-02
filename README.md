@@ -100,6 +100,8 @@ comparison changes (a new base, or new commits on `HEAD`).
 
 `gitTreeCompare.collapsed` When enabled, shows folders collapsed instead of expanded. NOTE: Changing this option requires restarting VS Code.
 
+`gitTreeCompare.showExpandAll` When enabled (default), shows an "Expand All" button next to "Collapse All" in the view title bar.
+
 `gitTreeCompare.compactFolders` When enabled, compacts (flattens) single-child folders into a single tree element. Useful for Java package structures, for example. May have a performance impact for large diff trees.
 
 `gitTreeCompare.showCheckboxes` When enabled, shows checkboxes next to files and folders, allowing you to tick off items, for example when reviewing changes.

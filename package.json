@@ -216,6 +216,12 @@
                 "category": "Git Tree Compare"
             },
             {
+                "command": "gitTreeCompare.expandAll",
+                "title": "Expand All",
+                "icon": "$(expand-all)",
+                "category": "Git Tree Compare"
+            },
+            {
                 "command": "gitTreeCompare.filterFiles",
                 "title": "Filter Files",
                 "icon": "$(filter)",
@@ -457,6 +463,11 @@
                     "command": "gitTreeCompare.collapseAll",
                     "when": "view == gitTreeCompare",
                     "group": "navigation@6"
+                },
+                {
+                    "command": "gitTreeCompare.expandAll",
+                    "when": "view == gitTreeCompare && config.gitTreeCompare.showExpandAll",
+                    "group": "navigation@7"
                 },
                 {
                     "submenu": "gitTreeCompare.viewAndSort",
@@ -743,6 +754,11 @@
                     "type": "boolean",
                     "description": "Whether to show folders collapsed instead of expanded. NOTE: A restart is required when changing this setting.",
                     "default": false
+                },
+                "gitTreeCompare.showExpandAll": {
+                    "type": "boolean",
+                    "description": "Whether to show an \"Expand All\" button next to \"Collapse All\" in the view title bar.",
+                    "default": true
                 },
                 "gitTreeCompare.compactFolders": {
                     "type": "boolean",
